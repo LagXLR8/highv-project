@@ -1,0 +1,6 @@
+{
+  "parent": "highv:item/template_longsword",
+  "textures": {
+    "layer0": "highv:item/thermal_katana"
+  }
+}

@@ -1,0 +1,17 @@
+{
+    "targets": [
+        "swap"
+    ],
+    "passes": [
+        {
+            "name": "highv:speed_lines",
+            "intarget": "minecraft:main",
+            "outtarget": "swap"
+        },
+        {
+            "name": "highv:speed_lines",
+            "intarget": "swap",
+            "outtarget": "minecraft:main"
+        }
+    ]
+}

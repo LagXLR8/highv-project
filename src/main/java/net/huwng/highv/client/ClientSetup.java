@@ -1,0 +1,64 @@
+package net.huwng.highv.client;
+
+import net.huwng.highv.HighV;
+import net.huwng.highv.client.renderer.entity.GrapplingHookRenderer;
+import net.huwng.highv.entity.ModEntities;
+import net.minecraft.client.Minecraft;
+import net.minecraft.server.packs.resources.ResourceManagerReloadListener;
+import net.neoforged.bus.api.IEventBus;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.client.event.EntityRenderersEvent;
+import net.neoforged.neoforge.client.event.RegisterClientReloadListenersEvent;
+import net.neoforged.neoforge.client.event.RegisterGuiLayersEvent;
+import net.neoforged.neoforge.client.event.ScreenEvent;
+
+/**
+ * Client-side setup.
+ *
+ * Bus phân loại:
+ *  MOD BUS   — EntityRenderersEvent, RegisterGuiLayersEvent,
+ *              RegisterClientReloadListenersEvent
+ *  GAME BUS  — ScreenEvent (→ @EventBusSubscriber riêng bên dưới)
+ */
+public class ClientSetup {
+
+    public static void register(IEventBus modEventBus) {
+        modEventBus.addListener(ClientSetup::onRegisterRenderers);
+        modEventBus.addListener(ClientSetup::onRegisterGuiLayers);
+        modEventBus.addListener(ClientSetup::onRegisterReloadListeners);
+        // ScreenEvent KHÔNG đăng ký trên modEventBus — xem ScreenHandler bên dưới
+
+        ThermalKatanaAttackRangeAssist.register();
+    }
+
+    private static void onRegisterRenderers(EntityRenderersEvent.RegisterRenderers event) {
+        event.registerEntityRenderer(
+                ModEntities.GRAPPLING_HOOK.get(),
+                GrapplingHookRenderer::new
+        );
+    }
+
+    private static void onRegisterGuiLayers(RegisterGuiLayersEvent event) {
+        event.registerAboveAll(HighV.id("motion_blur"), new MotionBlurOverlay());
+        event.registerAboveAll(HighV.id("speed_hud"),   new SpeedHudOverlay());
+    }
+
+    private static void onRegisterReloadListeners(RegisterClientReloadListenersEvent event) {
+        event.registerReloadListener(
+                (ResourceManagerReloadListener) rm -> SpeedLinesShader.load()
+        );
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // ScreenEvent.Init.Pre → GAME BUS (NeoForge.EVENT_BUS)
+    // ────────────────────────────────────────────────────────────────────────
+    @EventBusSubscriber(modid = HighV.MOD_ID, value = net.neoforged.api.distmarker.Dist.CLIENT)
+    public static class ScreenHandler {
+        @SubscribeEvent
+        public static void onScreenInit(ScreenEvent.Init.Pre event) {
+            Minecraft mc = Minecraft.getInstance();
+            SpeedLinesShader.resize(mc.getWindow().getWidth(), mc.getWindow().getHeight());
+        }
+    }
+}
