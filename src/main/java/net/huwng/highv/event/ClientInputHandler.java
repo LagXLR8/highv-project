@@ -18,13 +18,18 @@ import net.huwng.highv.network.packet.GrapplingStatePacket;
 import net.huwng.highv.network.packet.RicochetRequestPacket;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.Options;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.material.Fluids;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
@@ -53,10 +58,6 @@ public class ClientInputHandler {
     private static final double ENTITY_ASSIST_DOT =
             Math.cos(Math.toRadians(ENTITY_ASSIST_ANGLE_DEG));
 
-    // Block scan giữ nguyên
-    private static final float SCAN_ANGLE = 8f;
-    private static final int   SCAN_GRID  = 3;
-
     // ── State ─────────────────────────────────────────────────────────────────
     private static boolean wasHoldingRMB    = false;
     private static boolean hookShotThisTick = false;
@@ -80,7 +81,10 @@ public class ClientInputHandler {
 
     public static TargetResult lastTarget = null;
 
-    public record TargetResult(Vec3 position, Entity entity) {
+    public record TargetResult(Vec3 position, Entity entity, boolean isSafeLedge, double distance) {
+        public TargetResult(Vec3 position, Entity entity) {
+            this(position, entity, false, 0.0);
+        }
         public boolean isEntity() { return entity != null; }
     }
 
@@ -108,7 +112,10 @@ public class ClientInputHandler {
         tickDriftInput(mc, player);
         tickRicochetInput(mc, player);
 
-        if (!player.getOffhandItem().is(ModItems.GRAPPLING_HOOK.get())) {
+        boolean holdingHook = player.getOffhandItem().is(ModItems.GRAPPLING_HOOK.get())
+                || player.getMainHandItem().is(ModItems.GRAPPLING_HOOK.get());
+
+        if (!holdingHook) {
             if (wasHoldingRMB) {
                 sendState(false, Vec3.ZERO, Vec3.ZERO);
                 wasHoldingRMB = false; hookShotThisTick = false;
@@ -168,8 +175,7 @@ public class ClientInputHandler {
         TargetResult entityTarget = detectEntity(mc, player, eye, look);
         if (entityTarget != null) return entityTarget;
 
-        Vec3 blockPos = detectBlock(mc, player, look);
-        return blockPos != null ? new TargetResult(blockPos, null) : null;
+        return detectSafeBlock(mc, player, eye, look);
     }
 
     /**
@@ -210,8 +216,6 @@ public class ClientInputHandler {
             if (dot < bestDot) continue; // ngoài cone hoặc thua candidate tốt hơn
 
             // Line of sight: ray đến center của entity không bị block chặn
-            // Dùng center chứ không phải hit point trên AABB — tránh edge case khi
-            // entity đứng sát tường và ray vào AABB bị chặn nhưng center thì không
             if (!hasLineOfSight(mc, player, eye, center)) continue;
 
             bestDot   = dot;
@@ -219,13 +223,13 @@ public class ClientInputHandler {
             bestPoint = center;
         }
 
-        return best != null ? new TargetResult(bestPoint, best) : null;
+        return best != null ? new TargetResult(bestPoint, best, false, bestPoint.distanceTo(eye)) : null;
     }
 
     /** Line of sight: ray từ from đến to không bị block solid chặn */
     private static boolean hasLineOfSight(Minecraft mc, Player player, Vec3 from, Vec3 to) {
         BlockHitResult hit = mc.level.clip(new ClipContext(
-                from, to, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, player));
+                from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, player));
         return hit.getType() == HitResult.Type.MISS;
     }
 
@@ -244,48 +248,168 @@ public class ClientInputHandler {
     }
 
     // =========================================================================
-    //  BLOCK DETECTION (giữ nguyên)
+    //  SMART SAFE-POINT BLOCK DETECTION
     // =========================================================================
 
-    private static Vec3 detectBlock(Minecraft mc, Player player, Vec3 look) {
-        Vec3   eye   = player.getEyePosition();
-        Vec3   best  = null;
-        double bestD = Double.MAX_VALUE;
-        Vec3   up    = Math.abs(look.y) < 0.99 ? new Vec3(0,1,0) : new Vec3(1,0,0);
-        Vec3   right = look.cross(up).normalize();
-        Vec3   upDir = right.cross(look).normalize();
-        int    half  = SCAN_GRID / 2;
+    /**
+     * Thuật toán tìm điểm neo an toàn thông minh:
+     * 1. Lọc bỏ hoàn toàn các bề mặt nguy hiểm (Lava, Lửa, Bụi gai, Băng tuyết lún, Xương rồng, Magma).
+     * 2. Quét đa tầng đồng tâm (Concentric Ray Cone) gồm tia trực diện và 3 vòng nón (3.5°, 7.0°, 11.0°).
+     * 3. Chấm điểm thông minh:
+     *    - Ưu tiên tia gần tâm ngắm (Angular dot product ^ 3.5).
+     *    - Ưu tiên gờ an toàn đứng được (Safe Ledge có 2 block không khí phía trên: x1.85).
+     *    - Ưu tiên bờ tường vuông góc (Horizontal Wall cho Wallstride: x1.35).
+     *    - Ưu tiên cao độ (các điểm trên cao tạo đà đu và vượt chướng ngại vật).
+     *    - Phạt nặng điểm rơi mặt đất sát chân khi người chơi đang nhìn ngang hoặc ngước lên.
+     */
+    private static TargetResult detectSafeBlock(Minecraft mc, Player player, Vec3 eye, Vec3 look) {
+        Level level = mc.level;
+        if (level == null) return null;
 
-        Vec3 r = rayCastBlock(mc, player, look);
-        if (r != null) { double d = r.distanceTo(eye); if (d < bestD) { bestD=d; best=r; } }
+        Vec3 up = Math.abs(look.y) < 0.99 ? new Vec3(0, 1, 0) : new Vec3(1, 0, 0);
+        Vec3 right = look.cross(up).normalize();
+        Vec3 upDir = right.cross(look).normalize();
 
-        for (int gi = 0; gi < SCAN_GRID; gi++) {
-            for (int gj = 0; gj < SCAN_GRID; gj++) {
-                float offR = ((float)(gi-half) / Math.max(half,1)) * SCAN_ANGLE;
-                float offU = ((float)(gj-half) / Math.max(half,1)) * SCAN_ANGLE;
-                Vec3 dir   = rotateDir(look, right, upDir, offR, offU);
-                Vec3 res   = rayCastBlock(mc, player, dir);
-                if (res == null) continue;
-                double d = res.distanceTo(eye);
-                if (d < bestD) { bestD=d; best=res; }
+        TargetResult bestTarget = null;
+        double bestScore = -1.0;
+
+        // 1. Ray trực diện (Direct Crosshair Ray)
+        BlockHitResult directHit = rayCastCollider(level, player, eye, look);
+        if (directHit != null) {
+            double score = scoreHit(level, player, eye, look, directHit, true);
+            if (score > 0) {
+                boolean safe = isSafeLedge(level, directHit.getBlockPos(), directHit.getDirection());
+                double dist = directHit.getLocation().distanceTo(eye);
+                bestTarget = new TargetResult(directHit.getLocation(), null, safe, dist);
+                bestScore = score;
             }
         }
-        return best;
+
+        // 2. Vòng nón quét đồng tâm (Concentric Ray Cones)
+        float[] ringAngles = {3.5f, 7.0f, 11.0f};
+        int[] ringSamples = {8, 12, 12};
+
+        for (int r = 0; r < ringAngles.length; r++) {
+            float radiusDeg = ringAngles[r];
+            int samples = ringSamples[r];
+            double rRad = Math.toRadians(radiusDeg);
+            double cosR = Math.cos(rRad);
+            double sinR = Math.sin(rRad);
+
+            for (int i = 0; i < samples; i++) {
+                double phi = 2.0 * Math.PI * i / samples;
+                double cosPhi = Math.cos(phi);
+                double sinPhi = Math.sin(phi);
+
+                Vec3 dir = look.scale(cosR)
+                        .add(right.scale(sinR * cosPhi))
+                        .add(upDir.scale(sinR * sinPhi))
+                        .normalize();
+
+                BlockHitResult hit = rayCastCollider(level, player, eye, dir);
+                if (hit == null) continue;
+
+                double score = scoreHit(level, player, eye, look, hit, false);
+                if (score > bestScore) {
+                    boolean safe = isSafeLedge(level, hit.getBlockPos(), hit.getDirection());
+                    double dist = hit.getLocation().distanceTo(eye);
+                    bestTarget = new TargetResult(hit.getLocation(), null, safe, dist);
+                    bestScore = score;
+                }
+            }
+        }
+
+        return bestTarget;
     }
 
-    private static Vec3 rayCastBlock(Minecraft mc, Player player, Vec3 dir) {
-        Vec3 from = player.getEyePosition();
-        Vec3 to   = from.add(dir.scale(SCAN_RANGE));
-        BlockHitResult hit = mc.level.clip(new ClipContext(
-                from, to, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, player));
-        if (hit.getType() != HitResult.Type.BLOCK) return null;
-        BlockState state = mc.level.getBlockState(hit.getBlockPos());
-        return state.isSolid() ? hit.getLocation() : null;
+    private static BlockHitResult rayCastCollider(Level level, Player player, Vec3 from, Vec3 dir) {
+        Vec3 to = from.add(dir.scale(SCAN_RANGE));
+        BlockHitResult hit = level.clip(new ClipContext(
+                from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, player));
+        return hit.getType() == HitResult.Type.BLOCK ? hit : null;
     }
 
-    private static Vec3 rotateDir(Vec3 base, Vec3 axisR, Vec3 axisU, float degR, float degU) {
-        return base.add(axisR.scale(Math.tan(Math.toRadians(degR))))
-                .add(axisU.scale(Math.tan(Math.toRadians(degU)))).normalize();
+    private static double scoreHit(Level level, Player player, Vec3 eye, Vec3 look, BlockHitResult hit, boolean isDirect) {
+        BlockPos pos = hit.getBlockPos();
+        BlockState state = level.getBlockState(pos);
+
+        if (isHazardBlock(level, pos, state)) return -1.0;
+
+        Direction face = hit.getDirection();
+        if (face == Direction.UP && isHazardBlock(level, pos.above(), level.getBlockState(pos.above()))) {
+            return -1.0;
+        }
+
+        Vec3 loc = hit.getLocation();
+        Vec3 toHit = loc.subtract(eye);
+        double dist = toHit.length();
+        if (dist < 1.8 || dist > SCAN_RANGE) return -1.0;
+
+        double dot = toHit.normalize().dot(look);
+        if (dot < 0.70) return -1.0;
+
+        // Càng gần tâm ngắm điểm càng cao
+        double alignScore = Math.pow(dot, 3.5);
+
+        // Đánh giá cự ly
+        double distFactor;
+        if (dist < 3.5) {
+            distFactor = 0.25 + 0.35 * (dist / 3.5);
+        } else if (dist <= 32.0) {
+            distFactor = 1.0;
+        } else {
+            distFactor = Math.max(0.5, 1.0 - (dist - 32.0) / 40.0);
+        }
+
+        // Phạt mặt đất ngay dưới chân khi nhìn ngang hoặc ngước lên
+        if (look.y > -0.45 && loc.y < eye.y - 1.0 && dist < 4.5) {
+            alignScore *= 0.15;
+        }
+
+        // Hệ số bề mặt
+        double surfaceBonus = 1.0;
+        if (isSafeLedge(level, pos, face)) {
+            surfaceBonus = 1.85;
+        } else if (face.getAxis().isHorizontal()) {
+            surfaceBonus = 1.35;
+        }
+
+        // Hệ số cao độ
+        double heightBonus = 1.0;
+        if (loc.y > eye.y) {
+            heightBonus += Math.min(0.40, (loc.y - eye.y) * 0.04);
+        }
+
+        double directBonus = isDirect ? 1.30 : 1.0;
+
+        return alignScore * distFactor * surfaceBonus * heightBonus * directBonus;
+    }
+
+    private static boolean isHazardBlock(Level level, BlockPos pos, BlockState state) {
+        if (state.is(Blocks.LAVA) || state.getFluidState().is(Fluids.LAVA)) return true;
+        if (state.is(Blocks.FIRE) || state.is(Blocks.SOUL_FIRE)) return true;
+        if (state.is(Blocks.MAGMA_BLOCK)) return true;
+        if (state.is(Blocks.CACTUS)) return true;
+        if (state.is(Blocks.SWEET_BERRY_BUSH)) return true;
+        if (state.is(Blocks.WITHER_ROSE)) return true;
+        if (state.is(Blocks.POWDER_SNOW)) return true;
+        if (state.is(Blocks.CAMPFIRE) || state.is(Blocks.SOUL_CAMPFIRE)) return true;
+        return false;
+    }
+
+    private static boolean isSafeLedge(Level level, BlockPos pos, Direction face) {
+        if (face != Direction.UP) return false;
+        BlockPos above1 = pos.above();
+        BlockPos above2 = pos.above(2);
+        BlockState state1 = level.getBlockState(above1);
+        BlockState state2 = level.getBlockState(above2);
+
+        if (!state1.getCollisionShape(level, above1).isEmpty()) return false;
+        if (!state2.getCollisionShape(level, above2).isEmpty()) return false;
+        if (isHazardBlock(level, above1, state1) || isHazardBlock(level, above2, state2)) return false;
+        if (!state1.getFluidState().isEmpty()) return false;
+
+        return true;
     }
 
     // =========================================================================
