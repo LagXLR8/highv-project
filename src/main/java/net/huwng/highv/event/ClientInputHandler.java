@@ -273,15 +273,19 @@ public class ClientInputHandler {
         TargetResult bestTarget = null;
         double bestScore = -1.0;
 
-        // 1. Ray trực diện (Direct Crosshair Ray)
+        // 1. Ray trực diện (Direct Crosshair Ray) - Luôn đảm bảo nhận diện khi trỏ thẳng vào block hợp lệ
         BlockHitResult directHit = rayCastCollider(level, player, eye, look);
         if (directHit != null) {
-            double score = scoreHit(level, player, eye, look, directHit, true);
-            if (score > 0) {
-                boolean safe = isSafeLedge(level, directHit.getBlockPos(), directHit.getDirection());
+            BlockPos pos = directHit.getBlockPos();
+            BlockState state = level.getBlockState(pos);
+            if (!isHazardBlock(level, pos, state)) {
                 double dist = directHit.getLocation().distanceTo(eye);
-                bestTarget = new TargetResult(directHit.getLocation(), null, safe, dist);
-                bestScore = score;
+                if (dist >= 0.3 && dist <= SCAN_RANGE) {
+                    boolean safe = isSafeLedge(level, pos, directHit.getDirection());
+                    bestTarget = new TargetResult(directHit.getLocation(), null, safe, dist);
+                    double score = scoreHit(level, player, eye, look, directHit, true);
+                    bestScore = Math.max(1.0, score);
+                }
             }
         }
 
@@ -325,8 +329,10 @@ public class ClientInputHandler {
     private static BlockHitResult rayCastCollider(Level level, Player player, Vec3 from, Vec3 dir) {
         Vec3 to = from.add(dir.scale(SCAN_RANGE));
         BlockHitResult hit = level.clip(new ClipContext(
-                from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, player));
-        return hit.getType() == HitResult.Type.BLOCK ? hit : null;
+                from, to, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, player));
+        if (hit.getType() != HitResult.Type.BLOCK) return null;
+        BlockState state = level.getBlockState(hit.getBlockPos());
+        return (!state.isAir() && (state.isSolid() || !state.getCollisionShape(level, hit.getBlockPos()).isEmpty())) ? hit : null;
     }
 
     private static double scoreHit(Level level, Player player, Vec3 eye, Vec3 look, BlockHitResult hit, boolean isDirect) {
@@ -343,10 +349,10 @@ public class ClientInputHandler {
         Vec3 loc = hit.getLocation();
         Vec3 toHit = loc.subtract(eye);
         double dist = toHit.length();
-        if (dist < 1.8 || dist > SCAN_RANGE) return -1.0;
+        if (dist < 0.3 || dist > SCAN_RANGE) return -1.0;
 
         double dot = toHit.normalize().dot(look);
-        if (dot < 0.70) return -1.0;
+        if (dot < 0.50) return -1.0;
 
         // Càng gần tâm ngắm điểm càng cao
         double alignScore = Math.pow(dot, 3.5);
@@ -354,7 +360,7 @@ public class ClientInputHandler {
         // Đánh giá cự ly
         double distFactor;
         if (dist < 3.5) {
-            distFactor = 0.25 + 0.35 * (dist / 3.5);
+            distFactor = 0.40 + 0.60 * (dist / 3.5);
         } else if (dist <= 32.0) {
             distFactor = 1.0;
         } else {
