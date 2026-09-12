@@ -43,8 +43,12 @@ public class SpeedHudOverlay implements LayeredDraw.Layer {
         double speed     = SpeedEffectSystem.smoothedSpeed;
         double intensity = SpeedEffectSystem.intensity;
 
-        renderSpeedLines(gfx, mc, intensity);
-        renderSpeedometer(gfx, mc, speed, intensity);
+        if (HighVClientConfig.ENABLE_SPEED_LINES.get()) {
+            renderSpeedLines(gfx, mc, intensity);
+        }
+        if (HighVClientConfig.ENABLE_SPEEDOMETER.get()) {
+            renderSpeedometer(gfx, mc, speed, intensity);
+        }
     }
 
     // ── Speed lines ─────────────────────────────────────────────────────────

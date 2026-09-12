@@ -1,5 +1,12 @@
 {
   "item.highv.grappling_hook": "Grappling Hook",
   "item.highv.thermal_katana": "Thermal Katana",
-  "enchantment.highv.bhopping": "Bhopping"
+  "enchantment.highv.bhopping": "Bhopping",
+  "enchantment.highv.dash": "Dash",
+  "enchantment.highv.drift": "Drift",
+  "enchantment.highv.gravity_shift": "Gravity Shift",
+  "enchantment.highv.ricochet": "Ricochet",
+  "enchantment.highv.wallstride": "Wallstride",
+  "key.categories.highv": "HighV",
+  "key.highv.drift": "Drift (Slide)"
 }

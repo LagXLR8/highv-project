@@ -1,0 +1,21 @@
+{
+	"format_version": "1.8.0",
+	"animations": {
+		"idle": {
+			"loop": true,
+			"override_previous_animation": true,
+			"bones": {
+				"right_arm": {
+					"rotation": {
+						"0.0": {
+							"post": {
+								"vector": [24.4961, 33.7752, 26.6503]
+							},
+							"lerp_mode": "catmullrom"
+						}
+					}
+				}
+			}
+		}
+	}
+}

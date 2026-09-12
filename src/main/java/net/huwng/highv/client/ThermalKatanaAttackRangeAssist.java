@@ -10,31 +10,38 @@ import net.minecraft.world.phys.Vec3;
  * người chơi (client-side, vì đây là local player nên deltaMovement đọc chính
  * xác — khác với server-side Player, xem ghi chú trong ThermalKatanaSpeedTracker).
  *
- * Lý do cần: BetterCombat detect hit dựa trên vị trí player tại thời điểm
- * "tipping point" (sau khoảng windup). Nếu chạy càng nhanh, player càng đi
- * xa mục tiêu trong lúc windup đó → hitbox tại vị trí hiện tại dễ hụt.
+ * Công thức: cứ mỗi 10 b/s được +1.0 range_bonus, cap ở MAX_RANGE_BONUS.
+ * Vd: 10 b/s → +1.0, 20 b/s → +2.0, ... 50+ b/s → +5.0 (cap).
+ *
  * Đây là API mở rộng chính thức BetterCombat cung cấp sẵn cho đúng use-case
  * này (net.bettercombat.api.client.AttackRangeExtensions), thay vì phải tự
  * viết lại hệ thống hit-detection.
+ *
+ * LƯU Ý: giá trị này CỘNG THÊM vào range_bonus tĩnh đã khai báo trong
+ * data/highv/weapon_attributes/thermal_katana.json (hiện là 4.0) — KHÔNG
+ * thay thế. Giữ nguyên range_bonus tĩnh đó vì nó ảnh hưởng tới bước lọc sơ bộ
+ * (getInitialTargets) của BetterCombat — bonus động ở đây chỉ tác động tới
+ * bước sau (kích thước hitbox chính xác), bị giới hạn bởi bước lọc sơ bộ nếu
+ * không có range_bonus tĩnh đủ lớn làm nền (xem lịch sử trao đổi trước đó).
  */
 public final class ThermalKatanaAttackRangeAssist {
 
-    /**
-     * Thời gian (giây) coi như "cửa sổ windup + trễ mạng" cần bù range.
-     * File weapon_attributes hiện set "upswing": 0.05 cho katana → windup rơi
-     * vào khoảng sàn tối thiểu ~1 tick (~0.05s) theo code BetterCombat, cộng
-     * thêm biên độ cho ping/jitter. Nếu sau này đổi "upswing" trong json,
-     * nên chỉnh hằng số này theo tỉ lệ tương ứng.
-     */
-    private static final double COMPENSATION_SECONDS = 0.15;
+    /** Mỗi bao nhiêu b/s thì +1.0 range_bonus. */
+    private static final double SPEED_PER_RANGE_POINT = 10.0;
 
-    /** Hệ số an toàn nhân thêm (sai số đo tốc độ, network jitter). */
-    private static final double SAFETY_FACTOR = 1.3;
+    /** Trần range_bonus động tối đa cộng thêm được. */
+    private static final double MAX_RANGE_BONUS = 5.0;
+
+    /** Bật log debug. Tắt khi đã ổn. */
+    private static final boolean DEBUG = false;
 
     private ThermalKatanaAttackRangeAssist() {}
 
     public static void register() {
         AttackRangeExtensions.register(ThermalKatanaAttackRangeAssist::computeModifier);
+        if (DEBUG) {
+            net.huwng.highv.HighV.LOGGER.info("[ThermalKatanaAttackRangeAssist] đã register vào AttackRangeExtensions");
+        }
     }
 
     private static AttackRangeExtensions.Modifier computeModifier(AttackRangeExtensions.Context context) {
@@ -48,7 +55,14 @@ public final class ThermalKatanaAttackRangeAssist {
         Vec3   v       = player.getDeltaMovement();
         double speedBs = Math.sqrt(v.x * v.x + v.z * v.z) * 20.0;
 
-        double extraRange = speedBs * COMPENSATION_SECONDS * SAFETY_FACTOR;
+        double extraRange = Math.min(speedBs / SPEED_PER_RANGE_POINT, MAX_RANGE_BONUS);
+
+        if (DEBUG) {
+            net.huwng.highv.HighV.LOGGER.info(
+                    "[ThermalKatanaAttackRangeAssist] computeModifier gọi: speedBs={} extraRange={} baseAttackRange={}",
+                    speedBs, extraRange, context.attackRange());
+        }
+
         return new AttackRangeExtensions.Modifier(extraRange, AttackRangeExtensions.Operation.ADD);
     }
 }

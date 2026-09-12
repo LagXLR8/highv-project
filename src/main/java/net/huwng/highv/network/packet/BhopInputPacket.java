@@ -11,7 +11,7 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
 /**
  * Client → Server: gửi mỗi client tick khi người chơi đang mặc giày có
  * enchant Bhopping. Chứa trạng thái phím W/A/D/Space và góc yaw hiện tại,
- * dùng để BhopServerHandler tính Momentum, Air-strafe và Turn-break.
+ * dùng để BhopServerHandler tính Momentum, hướng di chuyển và Turn-break.
  */
 public record BhopInputPacket(
         boolean forward, boolean left, boolean right, boolean jump,
@@ -21,12 +21,16 @@ public record BhopInputPacket(
     public static final Type<BhopInputPacket> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath("highv", "bhop_input"));
 
+    // Thứ tự write PHẢI khớp chính xác thứ tự read — cả 2 đều theo đúng thứ
+    // tự khai báo field của record (forward, left, right, jump, yaw). ĐỪNG
+    // đổi thứ tự 2 dòng writeBoolean(left)/writeBoolean(right) — đã từng bị
+    // lệch với read (gây A/D bị hoán đổi) 2 lần trong quá khứ.
     public static final StreamCodec<FriendlyByteBuf, BhopInputPacket> STREAM_CODEC =
             StreamCodec.of(
                     (buf, pkt) -> {
                         buf.writeBoolean(pkt.forward);
-                        buf.writeBoolean(pkt.left);
                         buf.writeBoolean(pkt.right);
+                        buf.writeBoolean(pkt.left);
                         buf.writeBoolean(pkt.jump);
                         buf.writeFloat(pkt.yaw);
                     },

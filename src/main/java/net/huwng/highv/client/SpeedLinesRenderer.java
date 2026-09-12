@@ -28,6 +28,7 @@ public class SpeedLinesRenderer {
      */
     @SubscribeEvent
     public static void onRenderLevel(RenderLevelStageEvent event) {
+        if (!HighVClientConfig.ENABLE_SPEED_LINES.get()) return;
         if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_LEVEL) return;
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.options.hideGui) return;

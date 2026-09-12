@@ -44,3 +44,6 @@ High-velocity combat mod. Grappling hook with pendulum physics and momentum-base
     versionRange="[1.0.0,)"
     ordering="NONE"
     side="BOTH"
+
+[[mixins]]
+config="highv.mixins.json"

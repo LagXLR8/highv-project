@@ -1,0 +1,22 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "net.huwng.highv.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "PlayerHitboxMixin"
+  ],
+  "client": [
+    "CameraFeelMixin",
+    "CameraFeelRollMixin",
+    "ExplosionShakeMixin",
+    "ThunderShakeMixin",
+    "HandSwingShakeMixin",
+    "PlayerModelMixin",
+    "ItemInHandLayerMixin"
+  ],
+  "server": [],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

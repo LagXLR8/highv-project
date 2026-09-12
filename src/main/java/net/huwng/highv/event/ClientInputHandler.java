@@ -2,13 +2,20 @@ package net.huwng.highv.event;
 
 import net.huwng.highv.HighV;
 import net.huwng.highv.client.SpeedEffectSystem;
+import net.huwng.highv.client.ModKeyMappings;
+import net.huwng.highv.client.animation.DashAnimationHandler;
+import net.huwng.highv.client.KatanaMotionDynamicsHandler;
+import net.huwng.highv.client.hud.PilotHudInertiaHandler;
 import net.huwng.highv.enchantment.ModEnchantments;
 import net.huwng.highv.entity.GrapplingHookEntity;
 import net.huwng.highv.item.GrapplingHookItem;
 import net.huwng.highv.item.ModItems;
 import net.huwng.highv.network.packet.BhopInputPacket;
+import net.huwng.highv.network.packet.DashRequestPacket;
+import net.huwng.highv.network.packet.DriftInputPacket;
 import net.huwng.highv.network.packet.GrapplingShootPacket;
 import net.huwng.highv.network.packet.GrapplingStatePacket;
+import net.huwng.highv.network.packet.RicochetRequestPacket;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.Options;
 import net.minecraft.world.entity.Entity;
@@ -25,6 +32,7 @@ import net.minecraft.world.phys.Vec3;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 
@@ -57,6 +65,19 @@ public class ClientInputHandler {
      *  "tắt" cuối cùng khi player tháo giày Bhopping ra giữa chừng. */
     private static boolean wasSendingBhopInput = false;
 
+    /** Có đang gửi drift input packet từ tick trước không — dùng để gửi 1 packet
+     *  "tắt" cuối cùng khi player tháo giày Drift ra giữa chừng. */
+    private static boolean wasSendingDriftInput = false;
+
+    /** Trạng thái Shift tick trước — dùng để phát hiện cạnh lên (vừa bấm) cho Dash. */
+    private static boolean wasHoldingShift = false;
+
+    /** Trạng thái Space tick trước — dùng để phát hiện cạnh lên (vừa bấm) cho Ricochet. */
+    private static boolean wasHoldingJumpForRicochet = false;
+
+    /** Trạng thái Space tick trước — dùng để phát hiện cạnh lên cho Slide-Jump. */
+    private static boolean wasHoldingJumpForSlideJump = false;
+
     public static TargetResult lastTarget = null;
 
     public record TargetResult(Vec3 position, Entity entity) {
@@ -76,11 +97,16 @@ public class ClientInputHandler {
 
         if (player == null || mc.level == null) {
             wasHoldingRMB = false; hookShotThisTick = false; lastTarget = null;
-            wasSendingBhopInput = false;
+            wasSendingBhopInput = false; wasHoldingShift = false; wasHoldingJumpForRicochet = false;
+            wasHoldingJumpForSlideJump = false;
+            wasSendingDriftInput = false;
             return;
         }
 
         tickBhopInput(mc, player);
+        tickDashInput(mc, player);
+        tickDriftInput(mc, player);
+        tickRicochetInput(mc, player);
 
         if (!player.getOffhandItem().is(ModItems.GRAPPLING_HOOK.get())) {
             if (wasHoldingRMB) {
@@ -315,6 +341,188 @@ public class ClientInputHandler {
         PacketDistributor.sendToServer(
                 new BhopInputPacket(forward, left, right, jump, player.getYRot()));
         wasSendingBhopInput = true;
+    }
+
+    // =========================================================================
+    //  DRIFT INPUT
+    // =========================================================================
+
+    /**
+     * Gửi trạng thái giữ phím Drift (mặc định Left Ctrl, xem ModKeyMappings.DRIFT
+     * — KHÔNG phải phím Sneak vanilla, tách riêng khỏi Dash) mỗi client tick,
+     * CHỈ khi giày đang mặc có enchant Drift. DriftServerHandler dùng giá trị
+     * này để biết có nên bắt đầu/tiếp tục trượt hay không.
+     */
+    private static void tickDriftInput(Minecraft mc, Player player) {
+        boolean hasDrift = ModEnchantments.getDriftLevel(player) > 0;
+
+        if (!hasDrift) {
+            if (wasSendingDriftInput) {
+                PacketDistributor.sendToServer(new DriftInputPacket(false));
+                wasSendingDriftInput = false;
+            }
+            return;
+        }
+
+        boolean holding = ModKeyMappings.DRIFT.isDown();
+        PacketDistributor.sendToServer(new DriftInputPacket(holding));
+        wasSendingDriftInput = true;
+
+        // Slide-Jump: khi đang trượt mà người chơi bấm Space (cạnh lên)
+        boolean isSliding = net.huwng.highv.client.animation.DriftAnimationHandler.isSyncedSliding(player.getUUID());
+        boolean jumpDown = mc.options.keyJump.isDown();
+        if (isSliding && jumpDown && !wasHoldingJumpForSlideJump) {
+            Vec3 curV = player.getDeltaMovement();
+            player.setDeltaMovement(curV.x, 1.08, curV.z);
+            PacketDistributor.sendToServer(new net.huwng.highv.network.packet.SlideJumpPacket());
+        }
+        wasHoldingJumpForSlideJump = jumpDown;
+    }
+
+    // =========================================================================
+    //  DASH INPUT
+    // =========================================================================
+
+    /**
+     * Phát hiện cạnh lên của phím Shift (vừa bấm, không phải giữ) khi đang
+     * mặc giày có enchant Dash. Hướng dash:
+     *  - Có giữ A/S/D → dash theo hướng tổ hợp phím đó (ngang, theo yaw),
+     *    giữ nhiều phím thì cộng hướng (vd A+S → dash chéo trái-sau). W
+     *    KHÔNG được tính vào tổ hợp này nữa.
+     *  - Không giữ A/S/D nào (kể cả khi đang giữ W, hoặc không giữ phím di
+     *    chuyển nào cả) → dash theo đúng hướng đang NHÌN (3D, kể cả
+     *    lên/xuống nếu ngước lên trời/cúi xuống đất). Nghĩa là W+Shift giờ
+     *    sẽ dash theo hướng nhìn chứ không còn bị ép về phía trước ngang.
+     */
+    private static int lastClientDashTick = -100;
+
+    private static void tickDashInput(Minecraft mc, Player player) {
+        boolean hasDash = ModEnchantments.getDashLevel(player) > 0;
+        if (!hasDash) {
+            wasHoldingShift = false;
+            return;
+        }
+
+        Options opts = mc.options;
+        boolean holdingShift = opts.keyShift.isDown();
+
+        // Không cho phép Dash khi đang trong trạng thái Drift / Trượt
+        boolean isSliding = net.huwng.highv.client.animation.DriftAnimationHandler.isSyncedSliding(player.getUUID());
+        if (isSliding) {
+            wasHoldingShift = holdingShift;
+            return;
+        }
+
+        if (holdingShift && !wasHoldingShift) {
+            int now = player.tickCount;
+            if (now < lastClientDashTick || now - lastClientDashTick >= 7) {
+                lastClientDashTick = now;
+                Vec3 dir = computeDashDirection(mc, player);
+                PacketDistributor.sendToServer(
+                        new DashRequestPacket((float) dir.x, (float) dir.y, (float) dir.z));
+
+                DashAnimationHandler.Pose pose = computeDashAnimationCategory(mc, player);
+                if (player instanceof net.minecraft.client.player.AbstractClientPlayer acp) {
+                    DashAnimationHandler.trigger(acp, pose);
+                }
+                PilotHudInertiaHandler.triggerDashImpulse(dir, pose);
+                KatanaMotionDynamicsHandler.triggerDashImpulse(pose);
+            }
+        }
+
+        wasHoldingShift = holdingShift;
+    }
+
+    @SubscribeEvent
+    public static void onClientPlayerClone(ClientPlayerNetworkEvent.Clone event) {
+        lastClientDashTick = -100;
+        wasHoldingShift = false;
+    }
+
+    /**
+     * Suy ra 1 trong 4 hướng animation (front/back/left/right) từ ĐÚNG các
+     * phím A/S/D đang giữ tại thời điểm dash kích hoạt — dùng chung logic
+     * đọc phím với computeDashDirection() để đảm bảo animation luôn khớp
+     * đúng hướng vật lý thật sự của cú dash.
+     *
+     * Không giữ A/S/D nào (kể cả chỉ giữ W hoặc không giữ gì) -> FRONT, vì
+     * lúc đó dash phóng thẳng theo hướng nhìn (xem computeDashDirection),
+     * gần nhất với "phía trước" thân người trong 4 animation có sẵn.
+     *
+     * Có giữ tổ hợp (vd A+S chéo trái-sau) -> quy về góc so với trục
+     * forward/right của thân người, rồi chọn 1 trong 4 hướng cardinal gần
+     * góc đó nhất (chia 4 cung 90°).
+     */
+    private static DashAnimationHandler.Pose computeDashAnimationCategory(Minecraft mc, Player player) {
+        Options opts = mc.options;
+        boolean back  = opts.keyDown.isDown();
+        boolean left  = opts.keyRight.isDown();
+        boolean right = opts.keyLeft.isDown();
+
+        double localForward = back ? -1.0 : 0.0;
+        double localRight = (right ? 1.0 : 0.0) - (left ? 1.0 : 0.0);
+        if (localForward == 0.0 && localRight == 0.0) {
+            return DashAnimationHandler.Pose.FRONT;
+        }
+
+        double angleDeg = Math.toDegrees(Math.atan2(localRight, localForward));
+        // 0° = front, 90° = right, ±180° = back, -90° = left.
+        if (angleDeg > -45 && angleDeg <= 45)  return DashAnimationHandler.Pose.FRONT;
+        if (angleDeg > 45  && angleDeg <= 135) return DashAnimationHandler.Pose.RIGHT;
+        if (angleDeg > 135 || angleDeg <= -135) return DashAnimationHandler.Pose.BACK;
+        return DashAnimationHandler.Pose.LEFT;
+    }
+
+    /**
+     * Hướng dash: tổ hợp A/S/D (ngang) nếu có giữ ít nhất 1 trong 3 phím đó,
+     * ngược lại (kể cả khi chỉ giữ W, hoặc không giữ phím di chuyển nào)
+     * dùng thẳng hướng nhìn 3D. W KHÔNG còn góp phần vào hướng tổ hợp nữa.
+     */
+    private static Vec3 computeDashDirection(Minecraft mc, Player player) {
+        Options opts = mc.options;
+        boolean back  = opts.keyDown.isDown();
+        boolean left  = opts.keyRight.isDown();
+        boolean right = opts.keyLeft.isDown();
+
+        if (back || left || right) {
+            double yawRad = Math.toRadians(player.getYRot());
+            double forwardX = -Math.sin(yawRad), forwardZ = Math.cos(yawRad);
+            double rightX   =  Math.cos(yawRad), rightZ   = Math.sin(yawRad);
+
+            double wishX = 0, wishZ = 0;
+            if (back)  { wishX -= forwardX; wishZ -= forwardZ; }
+            if (left)  { wishX -= rightX;   wishZ -= rightZ;   }
+            if (right) { wishX += rightX;   wishZ += rightZ;   }
+
+            double len = Math.sqrt(wishX * wishX + wishZ * wishZ);
+            if (len > 1.0e-6) return new Vec3(wishX / len, 0, wishZ / len);
+        }
+
+        return player.getLookAngle();
+    }
+
+    // =========================================================================
+    //  RICOCHET INPUT
+    // =========================================================================
+
+    /**
+     * Phát hiện cạnh lên của phím Space (vừa bấm, không phải giữ) khi đang
+     * mặc giày có enchant Ricochet. Gửi packet trigger — server tự quyết
+     * định có tác dụng gì hay không (chỉ có tác dụng nếu đang bám tường nhờ
+     * Wallstride, xem RicochetServerHandler).
+     */
+    private static void tickRicochetInput(Minecraft mc, Player player) {
+        boolean hasRicochet = ModEnchantments.getRicochetLevel(player) > 0;
+        if (!hasRicochet) {
+            wasHoldingJumpForRicochet = false;
+            return;
+        }
+
+        boolean holdingJump = mc.options.keyJump.isDown();
+        if (holdingJump && !wasHoldingJumpForRicochet) {
+            PacketDistributor.sendToServer(new RicochetRequestPacket());
+        }
+        wasHoldingJumpForRicochet = holdingJump;
     }
 
     // =========================================================================

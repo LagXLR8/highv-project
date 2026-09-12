@@ -18,6 +18,8 @@ public class MotionBlurOverlay implements LayeredDraw.Layer {
 
     @Override
     public void render(GuiGraphics gfx, DeltaTracker delta) {
+        if (!HighVClientConfig.ENABLE_MOTION_BLUR_VIGNETTE.get()) return;
+
         double intensity = SpeedEffectSystem.intensity;
         if (intensity < 0.15) return;
 
@@ -33,6 +35,9 @@ public class MotionBlurOverlay implements LayeredDraw.Layer {
 
         PoseStack ps = gfx.pose();
         ps.pushPose();
+
+        // Triệt tiêu dao động quán tính của Pilot HUD để vignette luôn đứng yên cố định ở 4 mép màn hình
+        net.huwng.highv.client.hud.PilotHudInertiaHandler.undoSway(ps);
 
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();

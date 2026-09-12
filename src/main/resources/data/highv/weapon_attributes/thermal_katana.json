@@ -1,7 +1,7 @@
 {
   "attributes": {
     "range_bonus": 4.0,
-    "pose": "",
+    "pose": "highv:idle",
     "two_handed": false,
     "category": "katana",
     "attacks": [

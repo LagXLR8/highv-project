@@ -20,6 +20,7 @@ public class SpeedCameraEffects {
 
     @SubscribeEvent
     public static void onComputeFov(ComputeFovModifierEvent event) {
+        if (!HighVClientConfig.ENABLE_DYNAMIC_FOV.get()) return;
         double intensity = SpeedEffectSystem.intensity;
         if (intensity <= 0.0) return;
 
@@ -33,6 +34,7 @@ public class SpeedCameraEffects {
 
     @SubscribeEvent
     public static void onComputeCameraAngles(ViewportEvent.ComputeCameraAngles event) {
+        if (!HighVClientConfig.ENABLE_SCREEN_SHAKE.get()) return;
         double sx = SpeedEffectSystem.shakeOffsetX;
         double sy = SpeedEffectSystem.shakeOffsetY;
         if (Math.abs(sx) < 0.001 && Math.abs(sy) < 0.001) return;

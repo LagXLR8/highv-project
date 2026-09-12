@@ -1,6 +1,10 @@
 package net.huwng.highv.client;
 
 import net.huwng.highv.HighV;
+import net.huwng.highv.client.animation.DashAnimationHandler;
+import net.huwng.highv.client.animation.DriftAnimationHandler;
+import net.huwng.highv.client.animation.MomentumAnimationHandler;
+import net.huwng.highv.client.animation.WallstrideAnimationHandler;
 import net.huwng.highv.client.renderer.entity.GrapplingHookRenderer;
 import net.huwng.highv.entity.ModEntities;
 import net.minecraft.client.Minecraft;
@@ -27,9 +31,32 @@ public class ClientSetup {
         modEventBus.addListener(ClientSetup::onRegisterRenderers);
         modEventBus.addListener(ClientSetup::onRegisterGuiLayers);
         modEventBus.addListener(ClientSetup::onRegisterReloadListeners);
+        modEventBus.addListener(ModKeyMappings::register);
         // ScreenEvent KHÔNG đăng ký trên modEventBus — xem ScreenHandler bên dưới
 
-        ThermalKatanaAttackRangeAssist.register();
+        MomentumAnimationHandler.init();
+        WallstrideAnimationHandler.init();
+        DashAnimationHandler.init();
+        DriftAnimationHandler.init();
+        net.huwng.highv.client.hud.PilotHudInertiaHandler.init();
+        KatanaArmLiveTuner.init();
+
+        // Tự động bật hiển thị cánh tay khi chém với Better Combat trong góc nhìn thứ nhất
+        ensureBetterCombatArmVisible();
+    }
+
+    /**
+     * Đảm bảo Better Combat chỉ hiển thị cánh tay phải vung theo kiếm trong góc nhìn thứ nhất,
+     * không hiển thị thêm cánh tay trái.
+     */
+    public static void ensureBetterCombatArmVisible() {
+        try {
+            if (net.bettercombat.client.BetterCombatClientMod.config != null) {
+                net.bettercombat.client.BetterCombatClientMod.config.isShowingArmsInFirstPerson = true;
+                net.bettercombat.client.BetterCombatClientMod.config.isShowingOtherHandFirstPerson = false;
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     private static void onRegisterRenderers(EntityRenderersEvent.RegisterRenderers event) {

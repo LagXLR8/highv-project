@@ -115,6 +115,7 @@ dependencies {
     implementation "curse.maven:playeranimator-658587:7389814"
     implementation "curse.maven:mmmmmmmmmmmm-225738:7943676"
     implementation "curse.maven:selene-499980:8343403"
+
     // Example optional mod dependency with JEI
     // The JEI API is declared for compile time use, while the full JEI artifact is used at runtime
     // compileOnly "mezz.jei:jei-${mc_version}-common-api:${jei_version}"

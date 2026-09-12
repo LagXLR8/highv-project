@@ -44,6 +44,7 @@ public class GrapplingHudRenderer {
     @SubscribeEvent
     public static void onRenderLevel(RenderLevelStageEvent event) {
         if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_PARTICLES) return;
+        if (!net.huwng.highv.client.HighVClientConfig.ENABLE_GRAPPLING_CROSSHAIR.get()) return;
 
         Minecraft   mc     = Minecraft.getInstance();
         LocalPlayer player = mc.player;

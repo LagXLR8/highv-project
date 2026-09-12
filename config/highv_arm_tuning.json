@@ -1,0 +1,35 @@
+{
+  "_huong_dan": "File cấu hình vị trí tay và Katana. Sửa và bấm Ctrl+S trong VS Code để game tự động Hot-Reload trong 0.2s! Hoặc bấm F8 trong game để chỉnh bằng phím.",
+  "hand_position": {
+    "x": 6.8,
+    "y": 0.2,
+    "z": -11.2
+  },
+  "hand_offset": {
+    "x": 0.1,
+    "y": 0.1,
+    "z": 0.8
+  },
+  "wrist_rotation": {
+    "x": -88.72,
+    "y": 173.72,
+    "z": 78.45
+  },
+  "katana_rotation": {
+    "x": -45.0,
+    "y": 130.0,
+    "z": 0.0
+  },
+  "katana_scale": {
+    "x": 1.56,
+    "y": 1.56,
+    "z": 0.7
+  },
+  "cube_marker": {
+    "x": 2.0,
+    "y": 3.0,
+    "z": 8.0,
+    "rot_angle": 45.0,
+    "rot_axis": "y"
+  }
+}

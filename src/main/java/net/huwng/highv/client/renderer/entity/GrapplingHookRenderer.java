@@ -4,6 +4,8 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import net.huwng.highv.HighV;
 import net.huwng.highv.entity.GrapplingHookEntity;
+import net.huwng.highv.client.GrapplingArmAnimator;
+import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
@@ -11,6 +13,7 @@ import net.minecraft.client.renderer.entity.EntityRenderer;
 import net.minecraft.client.renderer.entity.EntityRendererProvider;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
@@ -57,9 +60,9 @@ public class GrapplingHookRenderer extends EntityRenderer<GrapplingHookEntity> {
         if (!(hook.getOwner() instanceof Player player)) return;
 
         // Interpolated entity world pos (= vị trí hook hiện tại trong world)
-        double eX = lerp(hook.xo, hook.getX(), pt);
+        double eX = lerp(hook.xo != 0 ? hook.xo : hook.getX(), hook.getX(), pt);
         double eY = lerp(hook.yo != 0 ? hook.yo : hook.getY(), hook.getY(), pt);
-        double eZ = lerp(hook.zo, hook.getZ(), pt);
+        double eZ = lerp(hook.zo != 0 ? hook.zo : hook.getZ(), hook.getZ(), pt);
 
         // ── Điểm B: đầu dây phía hook ────────────────────────────────────────
         // Khi bám entity, entity có thể đang di chuyển → lấy vị trí thực tế của entity
@@ -69,27 +72,90 @@ public class GrapplingHookRenderer extends EntityRenderer<GrapplingHookEntity> {
             Entity hookedEnt = Minecraft.getInstance().level.getEntity(hookedId);
             if (hookedEnt != null) {
                 // Center của entity (world space) → chuyển về pose space (relative to hook)
-                double hentX = lerp(hookedEnt.xo, hookedEnt.getX(), pt);
-                double hentY = lerp(hookedEnt.yo, hookedEnt.getY(), pt) + hookedEnt.getBbHeight() * 0.5;
-                double hentZ = lerp(hookedEnt.zo, hookedEnt.getZ(), pt);
+                double hentX = lerp(hookedEnt.xo != 0 ? hookedEnt.xo : hookedEnt.getX(), hookedEnt.getX(), pt);
+                double hentY = lerp(hookedEnt.yo != 0 ? hookedEnt.yo : hookedEnt.getY(), hookedEnt.getY(), pt) + hookedEnt.getBbHeight() * 0.5;
+                double hentZ = lerp(hookedEnt.zo != 0 ? hookedEnt.zo : hookedEnt.getZ(), hookedEnt.getZ(), pt);
                 bx = hentX - eX;
                 by = hentY - eY;
                 bz = hentZ - eZ;
             }
         }
 
-        // ── Điểm A: tay trái player, relative to hook entity pos ─────────────
-        double px = lerp(player.xo, player.getX(), pt) - eX;
-        double py = lerp(player.yo, player.getY(), pt) - eY;
-        double pz = lerp(player.zo, player.getZ(), pt) - eZ;
+        // ── Điểm A: bám chuẩn xác vào bàn tay trái player trong 3D world space ─────────────────────
+        double ax, ay, az;
+        Minecraft mc = Minecraft.getInstance();
+        boolean isLocalFirstPerson = (player == mc.player && mc.options.getCameraType().isFirstPerson());
 
-        double yawRad = Math.toRadians(lerpAngle(player.yBodyRotO, player.yBodyRot, pt));
-        double rightX =  Math.cos(yawRad);
-        double rightZ =  Math.sin(yawRad);
-        double armSide = 0.45; // âm = tay trái
-        double ax = px + rightX * armSide;
-        double ay = py + player.getEyeHeight() * 0.55;
-        double az = pz + rightZ * armSide;
+        double px = lerp(player.xo != 0 ? player.xo : player.getX(), player.getX(), pt);
+        double py = lerp(player.yo != 0 ? player.yo : player.getY(), player.getY(), pt);
+        double pz = lerp(player.zo != 0 ? player.zo : player.getZ(), player.getZ(), pt);
+
+        // Ở FPP, vai trái xoay đồng bộ theo hướng nhìn camera (getViewYRot); ở TPP xoay theo yBodyRot
+        double bodyYaw = isLocalFirstPerson ? player.getViewYRot(pt) : lerpAngle(player.yBodyRotO, player.yBodyRot, pt);
+        double bodyYawRad = Math.toRadians(bodyYaw);
+
+        double cosYaw = Math.cos(bodyYawRad);
+        double sinYaw = Math.sin(bodyYawRad);
+
+        // Khớp vai trái của người chơi: nằm ở bên trái (+Left vector * 0.3125)
+        double shSide = 0.3125;
+        double shHeight = player.isCrouching() ? 1.15 : 1.375;
+        double fwdDist = isLocalFirstPerson ? 0.22 : 0.0;
+        double upOffset = isLocalFirstPerson ? 0.10 : 0.0;
+
+        double fwdX = -sinYaw * fwdDist;
+        double fwdZ =  cosYaw * fwdDist;
+
+        double shX = px + cosYaw * shSide + fwdX;
+        double shY = py + shHeight + upOffset;
+        double shZ = pz + sinYaw * shSide + fwdZ;
+
+        // Target hook position in world space
+        double targetX = eX + bx;
+        double targetY = eY + by;
+        double targetZ = eZ + bz;
+
+        // Vector từ khớp vai tới hook
+        double armDx = targetX - shX;
+        double armDy = targetY - shY;
+        double armDz = targetZ - shZ;
+        double armLen = Math.sqrt(armDx * armDx + armDy * armDy + armDz * armDz);
+
+        Vec3 vel = hook.getDeltaMovement();
+        double velLen = vel.length();
+        Vec3 shootDir = (velLen > 0.1) ? vel.scale(1.0 / velLen) : player.getLookAngle();
+
+        // Đồng bộ thuật toán tránh giật cánh tay với PlayerModelMixin khi vừa bắn
+        if (!hook.isAttached() && armLen < 3.0) {
+            double blend = Math.max(0.0, Math.min(1.0, (armLen - 0.4) / 2.6));
+            armDx = Mth.lerp(blend, shootDir.x, armDx / Math.max(1e-4, armLen));
+            armDy = Mth.lerp(blend, shootDir.y, armDy / Math.max(1e-4, armLen));
+            armDz = Mth.lerp(blend, shootDir.z, armDz / Math.max(1e-4, armLen));
+            double newLen = Math.sqrt(armDx * armDx + armDy * armDy + armDz * armDz);
+            if (newLen > 1e-4) {
+                armDx /= newLen;
+                armDy /= newLen;
+                armDz /= newLen;
+            }
+        } else if (armLen > 0.05) {
+            armDx /= armLen;
+            armDy /= armLen;
+            armDz /= armLen;
+        } else {
+            armDx = shootDir.x;
+            armDy = shootDir.y;
+            armDz = shootDir.z;
+        }
+
+        // Chiều dài cánh tay trái: TPP ~ 0.58m; FPP được scale 0.82x (~0.475m) cho thon gọn cân đối
+        double ARM_LENGTH = isLocalFirstPerson ? (0.58 * 0.82) : 0.58;
+        double handX = shX + armDx * ARM_LENGTH;
+        double handY = shY + armDy * ARM_LENGTH;
+        double handZ = shZ + armDz * ARM_LENGTH;
+
+        ax = handX - eX;
+        ay = handY - eY;
+        az = handZ - eZ;
 
         double dx = bx - ax, dy = by - ay, dz = bz - az;
         double len = Math.sqrt(dx*dx + dy*dy + dz*dz);

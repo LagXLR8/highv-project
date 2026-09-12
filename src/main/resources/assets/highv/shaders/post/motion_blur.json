@@ -1,0 +1,26 @@
+{
+  "targets": ["swap", "history"],
+  "passes": [
+    {
+      "name": "highv:motion_blur",
+      "intarget": "minecraft:main",
+      "outtarget": "swap",
+      "auxtargets": [
+        { "name": "History", "id": "history", "bilinear": true }
+      ],
+      "uniforms": [
+        { "name": "Decay", "values": [0.55] }
+      ]
+    },
+    {
+      "name": "blit",
+      "intarget": "swap",
+      "outtarget": "history"
+    },
+    {
+      "name": "blit",
+      "intarget": "swap",
+      "outtarget": "minecraft:main"
+    }
+  ]
+}
