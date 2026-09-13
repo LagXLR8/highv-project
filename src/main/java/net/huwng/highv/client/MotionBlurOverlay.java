@@ -20,18 +20,31 @@ public class MotionBlurOverlay implements LayeredDraw.Layer {
     public void render(GuiGraphics gfx, DeltaTracker delta) {
         if (!HighVClientConfig.ENABLE_MOTION_BLUR_VIGNETTE.get()) return;
 
-        double intensity = SpeedEffectSystem.intensity;
-        if (intensity < 0.15) return;
-
         Minecraft mc = Minecraft.getInstance();
-        if (mc.options.hideGui) return;
+        if (mc.player == null || mc.options.hideGui) return;
+
+        double speed = SpeedEffectSystem.smoothedSpeed;
+        boolean isSliding = net.huwng.highv.client.animation.DriftAnimationHandler.isSyncedSliding(mc.player.getUUID());
+
+        // Xuất hiện từ tốc độ 7.5 b/s trở lên hoặc khi đang trượt
+        if (speed < 7.5 && !isSliding) return;
 
         int W = mc.getWindow().getGuiScaledWidth();
         int H = mc.getWindow().getGuiScaledHeight();
 
-        float alpha = (float)(intensity * intensity * 0.35f);
-        int   vigW  = (int)(W * 0.45f);
-        int   vigH  = (int)(H * 0.45f);
+        // Tính toán độ đậm (alpha) điện ảnh rõ nét:
+        // - 8 b/s -> 15 b/s: 0.10 -> 0.25
+        // - 20 b/s -> 35 b/s: 0.30 -> 0.52
+        // - Khi trượt: tối thiểu 0.38
+        float speedRatio = (float) Math.min(1.0, Math.max(0.0, (speed - 7.5) / 32.5));
+        float alpha = (float) (speedRatio * 0.52f);
+        if (isSliding) {
+            alpha = Math.max(alpha, 0.38f);
+        }
+        if (alpha < 0.05f) return;
+
+        int vigW = (int)(W * 0.38f);
+        int vigH = (int)(H * 0.38f);
 
         PoseStack ps = gfx.pose();
         ps.pushPose();

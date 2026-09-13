@@ -604,9 +604,11 @@ public class ClientInputHandler {
     }
 
     /**
-     * Hướng dash: tổ hợp A/S/D (ngang) nếu có giữ ít nhất 1 trong 3 phím đó,
-     * ngược lại (kể cả khi chỉ giữ W, hoặc không giữ phím di chuyển nào)
-     * dùng thẳng hướng nhìn 3D. W KHÔNG còn góp phần vào hướng tổ hợp nữa.
+     * Hướng dash:
+     * - Bấm S (lùi): Dash ngược về sau theo đúng hướng nhìn 3D của người chơi (-lookAngle).
+     *   Nếu kèm A hoặc D thì phối hợp lùi chéo theo 3D.
+     * - Bấm A/D thuần: Dash ngang theo trục thân người (yaw).
+     * - Bấm W hoặc không bấm phím di chuyển nào: Dash thẳng tới theo hướng nhìn 3D.
      */
     private static Vec3 computeDashDirection(Minecraft mc, Player player) {
         Options opts = mc.options;
@@ -614,13 +616,26 @@ public class ClientInputHandler {
         boolean left  = opts.keyRight.isDown();
         boolean right = opts.keyLeft.isDown();
 
-        if (back || left || right) {
+        if (back) {
+            Vec3 backward = player.getLookAngle().scale(-1.0);
+            if (!left && !right) {
+                return backward;
+            }
+            // S kết hợp A hoặc D: tính vector ngang tương đối theo hướng nhìn 3D
+            Vec3 up = Math.abs(player.getLookAngle().y) < 0.99 ? new Vec3(0, 1, 0) : new Vec3(1, 0, 0);
+            Vec3 camRight = player.getLookAngle().cross(up).normalize();
+            Vec3 wish = backward;
+            if (left)  wish = wish.subtract(camRight);
+            if (right) wish = wish.add(camRight);
+            double len = wish.length();
+            return len > 1.0e-6 ? wish.scale(1.0 / len) : backward;
+        }
+
+        if (left || right) {
             double yawRad = Math.toRadians(player.getYRot());
-            double forwardX = -Math.sin(yawRad), forwardZ = Math.cos(yawRad);
-            double rightX   =  Math.cos(yawRad), rightZ   = Math.sin(yawRad);
+            double rightX =  Math.cos(yawRad), rightZ = Math.sin(yawRad);
 
             double wishX = 0, wishZ = 0;
-            if (back)  { wishX -= forwardX; wishZ -= forwardZ; }
             if (left)  { wishX -= rightX;   wishZ -= rightZ;   }
             if (right) { wishX += rightX;   wishZ += rightZ;   }
 

@@ -80,8 +80,8 @@ public final class HighVClientConfig {
 
         ENABLE_MOTION_BLUR_VIGNETTE = builder
                 .comment("Bật/tắt hiệu ứng bóng mờ viền màn hình khi tốc độ cao (Vignette motion blur overlay).",
-                         "Mặc định: false (TẮT).")
-                .define("enableMotionBlurVignette", false);
+                         "Mặc định: true (BẬT).")
+                .define("enableMotionBlurVignette", true);
         builder.pop();
 
         // Speed effects category

@@ -8,6 +8,8 @@ import com.mojang.math.Axis;
 import net.huwng.highv.HighV;
 import net.huwng.highv.item.ModItems;
 import net.huwng.highv.item.ThermalKatanaItem;
+import net.huwng.highv.client.animation.DriftAnimationHandler;
+import net.huwng.highv.client.camera.CameraFeelMath;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.model.PlayerModel;
 import net.minecraft.client.player.AbstractClientPlayer;
@@ -94,6 +96,25 @@ public class FirstPersonSwordArmRenderer {
     public static float cubeRotAngle = 22.5f;
     public static String cubeRotAxis = "z";
 
+    // =========================================================================
+    // 3. TƯ THẾ CẦM KIẾM TỐC ĐỘ CAO (>35 b/s) HOẶC SLIDING (DRIFT):
+    // Có thể chỉnh bằng F8 (mục 7, 8, 9) hoặc trong config/highv_arm_tuning.json
+    // =========================================================================
+    public static float speedHandPosX = 0.5f;
+    public static float speedHandPosY = -1.0f;
+    public static float speedHandPosZ = 1.8f;
+
+    public static float speedWristRotX = -12.0f;
+    public static float speedWristRotY = 15.0f;
+    public static float speedWristRotZ = -8.0f;
+
+    public static float speedKatanaRotX = 0.0f;
+    public static float speedKatanaRotY = 0.0f;
+    public static float speedKatanaRotZ = 0.0f;
+
+    public static float currentSpeedPoseWeight = 0.0f;
+    private static long lastRenderNanoTime = 0;
+
     private static long lastReadTime = 0;
     public static long lastFileModified = 0;
 
@@ -164,20 +185,39 @@ public class FirstPersonSwordArmRenderer {
             // Cập nhật động học procedural (Inertia, Sway, Bước chạy, Nhịp thở, Nhảy & Tiếp đất)
             KatanaMotionDynamicsHandler.update(clientPlayer, event.getPartialTick());
 
+            // Tính toán delta time và độ hòa trộn tư thế tốc độ cao (>35 b/s hoặc trượt)
+            long nowNano = System.nanoTime();
+            float dt = (lastRenderNanoTime == 0) ? 0.016f : (nowNano - lastRenderNanoTime) / 1_000_000_000.0f;
+            lastRenderNanoTime = nowNano;
+            dt = Mth.clamp(dt, 0.001f, 0.1f);
+
+            boolean speedPoseActive = SpeedEffectSystem.smoothedSpeed > 35.0
+                    || DriftAnimationHandler.isSyncedSliding(clientPlayer.getUUID())
+                    || KatanaArmLiveTuner.isPreviewingSpeedPose();
+            float targetSpeedWeight = speedPoseActive ? 1.0f : 0.0f;
+            currentSpeedPoseWeight = (float) CameraFeelMath.damp(currentSpeedPoseWeight, targetSpeedWeight, 0.08, dt);
+
+            float effHandX = handPosX + handOffsetX + (speedHandPosX * currentSpeedPoseWeight);
+            float effHandY = handPosY + handOffsetY + (speedHandPosY * currentSpeedPoseWeight);
+            float effHandZ = handPosZ + handOffsetZ + (speedHandPosZ * currentSpeedPoseWeight);
+
             // Vị trí gốc bàn tay trên màn hình (Hand Anchor)
-            pose.translate((handPosX + handOffsetX) / 16.0f, (handPosY + handOffsetY) / 16.0f,
-                    (handPosZ + handOffsetZ) / 16.0f);
+            pose.translate(effHandX / 16.0f, effHandY / 16.0f, effHandZ / 16.0f);
 
             // Áp dụng độ lệch chuyển động procedural lên cụm tay & kiếm
             KatanaMotionDynamicsHandler.applyMotion(pose);
 
             // Xoay cổ tay (úp/ngửa bàn tay, xoay ngang, gật lên xuống)
-            if (wristRotZ != 0.0f)
-                pose.mulPose(Axis.ZP.rotationDegrees(wristRotZ));
-            if (wristRotX != 0.0f)
-                pose.mulPose(Axis.XP.rotationDegrees(wristRotX));
-            if (wristRotY != 0.0f)
-                pose.mulPose(Axis.YP.rotationDegrees(wristRotY));
+            float effWristZ = wristRotZ + (speedWristRotZ * currentSpeedPoseWeight);
+            float effWristX = wristRotX + (speedWristRotX * currentSpeedPoseWeight);
+            float effWristY = wristRotY + (speedWristRotY * currentSpeedPoseWeight);
+
+            if (effWristZ != 0.0f)
+                pose.mulPose(Axis.ZP.rotationDegrees(effWristZ));
+            if (effWristX != 0.0f)
+                pose.mulPose(Axis.XP.rotationDegrees(effWristX));
+            if (effWristY != 0.0f)
+                pose.mulPose(Axis.YP.rotationDegrees(effWristY));
 
             // ── 2A. Render Cánh tay người chơi (Gắn vào vị trí bàn tay) ──
             pose.pushPose();
@@ -227,10 +267,14 @@ public class FirstPersonSwordArmRenderer {
             // ── 2B. Render Thanh Kiếm (Khối cube trên kiếm bám chính xác vào lòng bàn tay)
             // ──
             pose.pushPose();
-            // Góc xoay thanh kiếm khi cầm trong tay (từ template_longsword.json)
-            pose.mulPose(Axis.XP.rotationDegrees(katanaRotX));
-            pose.mulPose(Axis.YP.rotationDegrees(katanaRotY));
-            pose.mulPose(Axis.ZP.rotationDegrees(katanaRotZ));
+            // Góc xoay thanh kiếm khi cầm trong tay (từ template_longsword.json + speed pose)
+            float effKatX = katanaRotX + (speedKatanaRotX * currentSpeedPoseWeight);
+            float effKatY = katanaRotY + (speedKatanaRotY * currentSpeedPoseWeight);
+            float effKatZ = katanaRotZ + (speedKatanaRotZ * currentSpeedPoseWeight);
+
+            pose.mulPose(Axis.XP.rotationDegrees(effKatX));
+            pose.mulPose(Axis.YP.rotationDegrees(effKatY));
+            pose.mulPose(Axis.ZP.rotationDegrees(effKatZ));
 
             // Góc xoay của khối cube marker (nếu có khai báo trong JSON)
             if (cubeRotAngle != 0.0f) {

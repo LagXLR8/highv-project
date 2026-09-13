@@ -91,8 +91,9 @@ public final class PilotHudInertiaHandler {
         try {
             net.bettercombat.api.client.BetterCombatClientEvents.ATTACK_START.register((player, attackHand) -> {
                 int dir = 0;
+                String anim = "";
                 if (attackHand != null && attackHand.attack() != null && attackHand.attack().animation() != null) {
-                    String anim = attackHand.attack().animation().toString().toLowerCase();
+                    anim = attackHand.attack().animation().toString().toLowerCase();
                     if (anim.contains("left")) {
                         dir = -1;
                     } else if (anim.contains("right")) {
@@ -100,12 +101,14 @@ public final class PilotHudInertiaHandler {
                     }
                 }
                 triggerSlashImpulse(dir, false);
+                net.huwng.highv.client.camera.DynamicPovHandler.triggerSlash(dir, anim, false);
             });
 
             net.bettercombat.api.client.BetterCombatClientEvents.ATTACK_HIT.register((player, attackHand, targets, cursorTarget) -> {
                 boolean hit = (targets != null && !targets.isEmpty()) || cursorTarget != null;
                 if (hit) {
                     onAttackHit();
+                    net.huwng.highv.client.camera.DynamicPovHandler.onAttackHit();
                 }
             });
         } catch (Throwable t) {

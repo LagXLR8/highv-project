@@ -31,5 +31,20 @@
     "z": 8.0,
     "rot_angle": 45.0,
     "rot_axis": "y"
+  },
+  "speed_hand_pos": {
+    "x": 0.5,
+    "y": -1.0,
+    "z": 1.8
+  },
+  "speed_wrist_rot": {
+    "x": -12.0,
+    "y": 15.0,
+    "z": -8.0
+  },
+  "speed_katana_rot": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
   }
 }

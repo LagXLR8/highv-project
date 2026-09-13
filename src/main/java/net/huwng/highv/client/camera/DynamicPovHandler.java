@@ -131,7 +131,7 @@ public final class DynamicPovHandler {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 2. TICK TRACKING (Phát hiện nhát chém & tiếp đất)
+    // 2. TICK TRACKING & SWORD SLASH RECOIL
     // ─────────────────────────────────────────────────────────────────────────
     @SubscribeEvent
     public static void onClientTick(ClientTickEvent.Post event) {
@@ -139,16 +139,60 @@ public final class DynamicPovHandler {
         LocalPlayer player = mc.player;
         if (player == null || mc.isPaused()) return;
 
-        // Phát hiện chém kiếm để kích hoạt xung lực camera (Slash recoil)
+        // Phát hiện chém kiếm vanilla (hoặc fallback khi không dùng Better Combat)
         int currentSwingTime = player.swingTime;
         if (currentSwingTime == 1 && prevSwingTime == 0) {
             slashDir = -slashDir;
-            slashImpulseRoll = slashDir * 1.4f;
-            slashImpulsePitch = -0.7f;
-            slashImpulseX = slashDir * 0.5f;
-            slashFovImpulse = -1.6f; // Micro-zoom đanh thép
+            triggerSlash(slashDir, "vanilla", false);
         }
         prevSwingTime = currentSwingTime;
+    }
+
+    /**
+     * Kích hoạt xung lực góc nhìn camera theo đường vung chém của kiếm (hỗ trợ Better Combat & Vanilla).
+     * @param dir Chiều vung (-1: trái, 1: phải)
+     * @param animName Tên animation của nhát chém (để nhận diện chém ngang, bổ dọc, đâm)
+     * @param hitTarget Có trúng mục tiêu ngay lập tức không
+     */
+    public static void triggerSlash(int dir, String animName, boolean hitTarget) {
+        String anim = animName != null ? animName.toLowerCase() : "";
+        if (anim.contains("left")) {
+            // Chém từ phải sang trái -> camera nghiêng trái, liếc nhẹ theo đường kiếm
+            slashImpulseRoll = -3.2f;
+            slashImpulseX = -1.0f;
+            slashImpulsePitch = -1.4f;
+        } else if (anim.contains("right")) {
+            // Chém từ trái sang phải -> camera nghiêng phải, liếc nhẹ theo đường kiếm
+            slashImpulseRoll = 3.2f;
+            slashImpulseX = 1.0f;
+            slashImpulsePitch = -1.4f;
+        } else if (anim.contains("slam") || anim.contains("vertical") || anim.contains("down")) {
+            // Chém bổ dọc từ trên xuống -> camera chúc mạnh xuống tạo cảm giác đầm tay
+            slashImpulseRoll = 0.0f;
+            slashImpulseX = 0.0f;
+            slashImpulsePitch = -2.8f;
+        } else {
+            // Nhát chém tổng quát
+            int effectiveDir = dir != 0 ? dir : (slashDir = -slashDir);
+            slashImpulseRoll = effectiveDir * 2.8f;
+            slashImpulseX = effectiveDir * 0.8f;
+            slashImpulsePitch = -1.2f;
+        }
+        slashFovImpulse = -2.2f; // Micro-zoom đanh thép theo phát chém
+
+        if (hitTarget) {
+            onAttackHit();
+        }
+    }
+
+    /**
+     * Chấn động camera khi nhát chém trúng mục tiêu (Impact Hit-Stop & Screen Trauma).
+     */
+    public static void onAttackHit() {
+        slashImpulsePitch -= 0.6f;
+        slashFovImpulse -= 1.0f;
+        double now = System.nanoTime() / 1_000_000_000.0;
+        ScreenShakeManager.INSTANCE.addPositionlessShake(0.06, now);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

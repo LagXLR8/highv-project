@@ -47,7 +47,10 @@ public class KatanaArmLiveTuner {
         KATANA_ROT("3. GÓC XOAY KIẾM (Katana Rot)", "Góc xoay thanh kiếm trên bàn tay (°)", 5.0f),
         KATANA_SCALE("4. SCALE KIẾM (Katana Scale)", "Tỉ lệ phóng to/thu nhỏ thanh kiếm", 0.05f),
         CUBE_MARKER("5. TÂM CUBE CHUÔI (Cube Marker)", "Tọa độ khối cube chuôi kiếm Blockbench", 0.5f),
-        HAND_OFFSET("6. BÙ TỌA ĐỘ TAY (Hand Offset)", "Dịch bù tinh chỉnh phụ cho bàn tay", 0.1f);
+        HAND_OFFSET("6. BÙ TỌA ĐỘ TAY (Hand Offset)", "Dịch bù tinh chỉnh phụ cho bàn tay", 0.1f),
+        SPEED_HAND_POS("7. [SPEED] VỊ TRÍ TAY (>35b/s)", "Dịch vị trí tay khi chạy nhanh/trượt", 0.2f),
+        SPEED_WRIST_ROT("8. [SPEED] XOAY CỔ TAY (>35b/s)", "Góc xoay cổ tay khi chạy nhanh/trượt (°)", 5.0f),
+        SPEED_KATANA_ROT("9. [SPEED] XOAY KIẾM (>35b/s)", "Góc xoay kiếm khi chạy nhanh/trượt (°)", 5.0f);
 
         public final String title;
         public final String desc;
@@ -67,6 +70,10 @@ public class KatanaArmLiveTuner {
     private static long lastFileModified = 0;
     private static int tickCounter = 0;
 
+    public static boolean isPreviewingSpeedPose() {
+        return tunerActive && currentModeIndex >= 6;
+    }
+
     public static long getLastFileModified() {
         return lastFileModified;
     }
@@ -81,7 +88,9 @@ public class KatanaArmLiveTuner {
         } catch (Throwable ignored) {
         }
         list.add(new File("config/highv_arm_tuning.json"));
+        list.add(new File("run/config/highv_arm_tuning.json"));
         list.add(new File("e:/siucap/highv-project/config/highv_arm_tuning.json"));
+        list.add(new File("e:/siucap/highv-project/run/config/highv_arm_tuning.json"));
         list.add(new File("e:/siucap/highv-project/run/client/config/highv_arm_tuning.json"));
         list.add(new File("../config/highv_arm_tuning.json"));
         list.add(new File("../../config/highv_arm_tuning.json"));
@@ -110,6 +119,10 @@ public class KatanaArmLiveTuner {
     private static final float DEF_KAT_ROTX = 0.0f, DEF_KAT_ROTY = 90.0f, DEF_KAT_ROTZ = 0.0f;
     private static final float DEF_KAT_SCX = 1.36f, DEF_KAT_SCY = 1.36f, DEF_KAT_SCZ = 0.6f;
     private static final float DEF_CUBE_X = 5.0f, DEF_CUBE_Y = 0.0f, DEF_CUBE_Z = 10.0f;
+
+    private static final float DEF_SPEED_HAND_X = 0.5f, DEF_SPEED_HAND_Y = -1.0f, DEF_SPEED_HAND_Z = 1.8f;
+    private static final float DEF_SPEED_WRIST_X = -12.0f, DEF_SPEED_WRIST_Y = 15.0f, DEF_SPEED_WRIST_Z = -8.0f;
+    private static final float DEF_SPEED_KAT_ROTX = 0.0f, DEF_SPEED_KAT_ROTY = 0.0f, DEF_SPEED_KAT_ROTZ = 0.0f;
 
     // ─────────────────────────────────────────────────────────────────────────
     // 1. XỬ LÝ PHÍM BẤM TRỰC TIẾP (INPUT HANDLING)
@@ -169,6 +182,9 @@ public class KatanaArmLiveTuner {
             case GLFW.GLFW_KEY_4 -> currentModeIndex = 3;
             case GLFW.GLFW_KEY_5 -> currentModeIndex = 4;
             case GLFW.GLFW_KEY_6 -> currentModeIndex = 5;
+            case GLFW.GLFW_KEY_7 -> currentModeIndex = 6;
+            case GLFW.GLFW_KEY_8 -> currentModeIndex = 7;
+            case GLFW.GLFW_KEY_9 -> currentModeIndex = 8;
 
             // Điều chỉnh trục X (Mũi tên Trái / Phải)
             case GLFW.GLFW_KEY_LEFT -> modifyValue(mode, 0, -mode.step);
@@ -249,6 +265,21 @@ public class KatanaArmLiveTuner {
                 if (axis == 1) FirstPersonSwordArmRenderer.handOffsetY = round2(FirstPersonSwordArmRenderer.handOffsetY + delta);
                 if (axis == 2) FirstPersonSwordArmRenderer.handOffsetZ = round2(FirstPersonSwordArmRenderer.handOffsetZ + delta);
             }
+            case SPEED_HAND_POS -> {
+                if (axis == 0) FirstPersonSwordArmRenderer.speedHandPosX = round2(FirstPersonSwordArmRenderer.speedHandPosX + delta);
+                if (axis == 1) FirstPersonSwordArmRenderer.speedHandPosY = round2(FirstPersonSwordArmRenderer.speedHandPosY + delta);
+                if (axis == 2) FirstPersonSwordArmRenderer.speedHandPosZ = round2(FirstPersonSwordArmRenderer.speedHandPosZ + delta);
+            }
+            case SPEED_WRIST_ROT -> {
+                if (axis == 0) FirstPersonSwordArmRenderer.speedWristRotX = round2(FirstPersonSwordArmRenderer.speedWristRotX + delta);
+                if (axis == 1) FirstPersonSwordArmRenderer.speedWristRotY = round2(FirstPersonSwordArmRenderer.speedWristRotY + delta);
+                if (axis == 2) FirstPersonSwordArmRenderer.speedWristRotZ = round2(FirstPersonSwordArmRenderer.speedWristRotZ + delta);
+            }
+            case SPEED_KATANA_ROT -> {
+                if (axis == 0) FirstPersonSwordArmRenderer.speedKatanaRotX = round2(FirstPersonSwordArmRenderer.speedKatanaRotX + delta);
+                if (axis == 1) FirstPersonSwordArmRenderer.speedKatanaRotY = round2(FirstPersonSwordArmRenderer.speedKatanaRotY + delta);
+                if (axis == 2) FirstPersonSwordArmRenderer.speedKatanaRotZ = round2(FirstPersonSwordArmRenderer.speedKatanaRotZ + delta);
+            }
         }
     }
 
@@ -284,6 +315,21 @@ public class KatanaArmLiveTuner {
                 FirstPersonSwordArmRenderer.handOffsetY = DEF_OFFSET_Y;
                 FirstPersonSwordArmRenderer.handOffsetZ = DEF_OFFSET_Z;
             }
+            case SPEED_HAND_POS -> {
+                FirstPersonSwordArmRenderer.speedHandPosX = DEF_SPEED_HAND_X;
+                FirstPersonSwordArmRenderer.speedHandPosY = DEF_SPEED_HAND_Y;
+                FirstPersonSwordArmRenderer.speedHandPosZ = DEF_SPEED_HAND_Z;
+            }
+            case SPEED_WRIST_ROT -> {
+                FirstPersonSwordArmRenderer.speedWristRotX = DEF_SPEED_WRIST_X;
+                FirstPersonSwordArmRenderer.speedWristRotY = DEF_SPEED_WRIST_Y;
+                FirstPersonSwordArmRenderer.speedWristRotZ = DEF_SPEED_WRIST_Z;
+            }
+            case SPEED_KATANA_ROT -> {
+                FirstPersonSwordArmRenderer.speedKatanaRotX = DEF_SPEED_KAT_ROTX;
+                FirstPersonSwordArmRenderer.speedKatanaRotY = DEF_SPEED_KAT_ROTY;
+                FirstPersonSwordArmRenderer.speedKatanaRotZ = DEF_SPEED_KAT_ROTZ;
+            }
         }
         if (mc.player != null) {
             mc.player.displayClientMessage(Component.literal("§6[High V] Đã reset " + mode.title + " về mặc định."), true);
@@ -309,8 +355,8 @@ public class KatanaArmLiveTuner {
 
         int startX = 10;
         int startY = 10;
-        int width = 310;
-        int height = 185;
+        int width = 330;
+        int height = 230;
 
         // Nền đen bán trong suốt phong cách Cyberpunk Dark Glass
         gfx.fill(startX, startY, startX + width, startY + height, 0xD00A0E17);
@@ -349,6 +395,12 @@ public class KatanaArmLiveTuner {
                         FirstPersonSwordArmRenderer.cubeMarkerX, FirstPersonSwordArmRenderer.cubeMarkerY, FirstPersonSwordArmRenderer.cubeMarkerZ);
                 case HAND_OFFSET -> String.format("X: %.2f  Y: %.2f  Z: %.2f",
                         FirstPersonSwordArmRenderer.handOffsetX, FirstPersonSwordArmRenderer.handOffsetY, FirstPersonSwordArmRenderer.handOffsetZ);
+                case SPEED_HAND_POS -> String.format("ΔX: %.2f  ΔY: %.2f  ΔZ: %.2f",
+                        FirstPersonSwordArmRenderer.speedHandPosX, FirstPersonSwordArmRenderer.speedHandPosY, FirstPersonSwordArmRenderer.speedHandPosZ);
+                case SPEED_WRIST_ROT -> String.format("ΔX: %.1f°  ΔY: %.1f°  ΔZ: %.1f°",
+                        FirstPersonSwordArmRenderer.speedWristRotX, FirstPersonSwordArmRenderer.speedWristRotY, FirstPersonSwordArmRenderer.speedWristRotZ);
+                case SPEED_KATANA_ROT -> String.format("ΔX: %.1f°  ΔY: %.1f°  ΔZ: %.1f°",
+                        FirstPersonSwordArmRenderer.speedKatanaRotX, FirstPersonSwordArmRenderer.speedKatanaRotY, FirstPersonSwordArmRenderer.speedKatanaRotZ);
             };
 
             int strWidth = font.width(valuesStr);
@@ -363,7 +415,11 @@ public class KatanaArmLiveTuner {
 
         // Thông tin mục đang chọn và bước nhảy
         TuningMode cur = modes[currentModeIndex];
-        gfx.drawString(font, "Bước nhảy hiện tại: ±" + cur.step + "  ([ / ]: đổi bước)", startX + 8, lineY, 0xFFFFAA00, false);
+        if (currentModeIndex >= 6) {
+            gfx.drawString(font, "⚡ [PREVIEW TỐC ĐỘ / TRƯỢT (>35 b/s) ĐANG BẬT]", startX + 8, lineY, 0xFFFFCC00, true);
+        } else {
+            gfx.drawString(font, "Bước nhảy hiện tại: ±" + cur.step + "  ([ / ]: đổi bước)", startX + 8, lineY, 0xFFFFAA00, false);
+        }
         lineY += 12;
 
         // Hướng dẫn phím
@@ -371,7 +427,7 @@ public class KatanaArmLiveTuner {
         lineY += 11;
         gfx.drawString(font, "• [PgUp / PgDn hoặc O / P]: Chỉnh trục Z", startX + 8, lineY, 0xFFCCCCCC, false);
         lineY += 11;
-        gfx.drawString(font, "• [TAB hoặc 1..6]: Đổi mục  • [ENTER]: LƯU RA FILE", startX + 8, lineY, 0xFF00FF7F, false);
+        gfx.drawString(font, "• [TAB hoặc 1..9]: Đổi mục  • [ENTER]: LƯU RA FILE", startX + 8, lineY, 0xFF00FF7F, false);
         lineY += 11;
         gfx.drawString(font, "• [F7]: Nạp lại từ file     • [R]: Reset mục này", startX + 8, lineY, 0xFF70C0FF, false);
 
@@ -463,6 +519,24 @@ public class KatanaArmLiveTuner {
         cubeMarker.addProperty("rot_angle", FirstPersonSwordArmRenderer.cubeRotAngle);
         cubeMarker.addProperty("rot_axis", FirstPersonSwordArmRenderer.cubeRotAxis);
         root.add("cube_marker", cubeMarker);
+
+        JsonObject speedHandPos = new JsonObject();
+        speedHandPos.addProperty("x", FirstPersonSwordArmRenderer.speedHandPosX);
+        speedHandPos.addProperty("y", FirstPersonSwordArmRenderer.speedHandPosY);
+        speedHandPos.addProperty("z", FirstPersonSwordArmRenderer.speedHandPosZ);
+        root.add("speed_hand_pos", speedHandPos);
+
+        JsonObject speedWristRot = new JsonObject();
+        speedWristRot.addProperty("x", FirstPersonSwordArmRenderer.speedWristRotX);
+        speedWristRot.addProperty("y", FirstPersonSwordArmRenderer.speedWristRotY);
+        speedWristRot.addProperty("z", FirstPersonSwordArmRenderer.speedWristRotZ);
+        root.add("speed_wrist_rot", speedWristRot);
+
+        JsonObject speedKatRot = new JsonObject();
+        speedKatRot.addProperty("x", FirstPersonSwordArmRenderer.speedKatanaRotX);
+        speedKatRot.addProperty("y", FirstPersonSwordArmRenderer.speedKatanaRotY);
+        speedKatRot.addProperty("z", FirstPersonSwordArmRenderer.speedKatanaRotZ);
+        root.add("speed_katana_rot", speedKatRot);
 
         String jsonStr = GSON.toJson(root);
 
@@ -608,6 +682,24 @@ public class KatanaArmLiveTuner {
                 if (obj.has("z")) FirstPersonSwordArmRenderer.cubeMarkerZ = obj.get("z").getAsFloat();
                 if (obj.has("rot_angle")) FirstPersonSwordArmRenderer.cubeRotAngle = obj.get("rot_angle").getAsFloat();
                 if (obj.has("rot_axis")) FirstPersonSwordArmRenderer.cubeRotAxis = obj.get("rot_axis").getAsString();
+            }
+            if (root.has("speed_hand_pos")) {
+                JsonObject obj = root.getAsJsonObject("speed_hand_pos");
+                if (obj.has("x")) FirstPersonSwordArmRenderer.speedHandPosX = obj.get("x").getAsFloat();
+                if (obj.has("y")) FirstPersonSwordArmRenderer.speedHandPosY = obj.get("y").getAsFloat();
+                if (obj.has("z")) FirstPersonSwordArmRenderer.speedHandPosZ = obj.get("z").getAsFloat();
+            }
+            if (root.has("speed_wrist_rot")) {
+                JsonObject obj = root.getAsJsonObject("speed_wrist_rot");
+                if (obj.has("x")) FirstPersonSwordArmRenderer.speedWristRotX = obj.get("x").getAsFloat();
+                if (obj.has("y")) FirstPersonSwordArmRenderer.speedWristRotY = obj.get("y").getAsFloat();
+                if (obj.has("z")) FirstPersonSwordArmRenderer.speedWristRotZ = obj.get("z").getAsFloat();
+            }
+            if (root.has("speed_katana_rot")) {
+                JsonObject obj = root.getAsJsonObject("speed_katana_rot");
+                if (obj.has("x")) FirstPersonSwordArmRenderer.speedKatanaRotX = obj.get("x").getAsFloat();
+                if (obj.has("y")) FirstPersonSwordArmRenderer.speedKatanaRotY = obj.get("y").getAsFloat();
+                if (obj.has("z")) FirstPersonSwordArmRenderer.speedKatanaRotZ = obj.get("z").getAsFloat();
             }
 
             hasLoadedFromConfig = true;
