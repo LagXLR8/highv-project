@@ -163,30 +163,30 @@ public final class DynamicPovHandler {
     public static void triggerSlash(int dir, String animName, boolean hitTarget) {
         String anim = animName != null ? animName.toLowerCase() : "";
         if (anim.contains("left")) {
-            // Chém từ phải sang trái -> camera nghiêng nhẹ sang trái theo đường kiếm
-            targetSlashRoll = -1.6f;
-            targetSlashYaw = -0.45f;
-            targetSlashPitch = -0.55f;
-            targetSlashFov = -0.7f;
+            // Chém từ phải sang trái -> camera nghiêng dứt khoát sang trái theo đường kiếm
+            targetSlashRoll = -3.2f;
+            targetSlashYaw = -0.95f;
+            targetSlashPitch = -1.2f;
+            targetSlashFov = -1.6f;
         } else if (anim.contains("right")) {
-            // Chém từ trái sang phải -> camera nghiêng nhẹ sang phải theo đường kiếm
-            targetSlashRoll = 1.6f;
-            targetSlashYaw = 0.45f;
-            targetSlashPitch = -0.55f;
-            targetSlashFov = -0.7f;
+            // Chém từ trái sang phải -> camera nghiêng dứt khoát sang phải theo đường kiếm
+            targetSlashRoll = 3.2f;
+            targetSlashYaw = 0.95f;
+            targetSlashPitch = -1.2f;
+            targetSlashFov = -1.6f;
         } else if (anim.contains("slam") || anim.contains("vertical") || anim.contains("down")) {
-            // Chém bổ dọc từ trên xuống -> camera chúc nhẹ xuống đầm tay
+            // Chém bổ dọc từ trên xuống -> camera chúc mạnh xuống dồn trọng lực đầm tay
             targetSlashRoll = 0.0f;
             targetSlashYaw = 0.0f;
-            targetSlashPitch = -1.0f;
-            targetSlashFov = -1.0f;
+            targetSlashPitch = -2.2f;
+            targetSlashFov = -2.0f;
         } else {
             // Nhát chém tổng quát
             int effectiveDir = dir != 0 ? dir : (slashDir = -slashDir);
-            targetSlashRoll = effectiveDir * 1.35f;
-            targetSlashYaw = effectiveDir * 0.38f;
-            targetSlashPitch = -0.45f;
-            targetSlashFov = -0.6f;
+            targetSlashRoll = effectiveDir * 2.8f;
+            targetSlashYaw = effectiveDir * 0.85f;
+            targetSlashPitch = -1.1f;
+            targetSlashFov = -1.4f;
         }
 
         if (hitTarget) {
@@ -198,8 +198,9 @@ public final class DynamicPovHandler {
      * Chấn động camera khi nhát chém trúng mục tiêu (Impact Hit-Stop).
      */
     public static void onAttackHit() {
-        targetSlashPitch -= 0.35f;
-        targetSlashFov -= 0.5f;
+        targetSlashPitch -= 0.65f;
+        targetSlashFov -= 0.8f;
+        targetSlashRoll *= 1.25f;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -264,14 +265,14 @@ public final class DynamicPovHandler {
         landOffset = (float) Mth.clamp(landOffset, -0.05, 0.02);
         cameraLandOffset = landOffset;
 
-        // 3E. Xung lực nhát chém Katana (Smooth Easing Attack & Decay Curves - KHÔNG giật cục)
-        slashImpulseRoll  = (float) CameraFeelMath.damp(slashImpulseRoll,  targetSlashRoll,  0.038, dt);
-        slashImpulsePitch = (float) CameraFeelMath.damp(slashImpulsePitch, targetSlashPitch, 0.038, dt);
-        slashImpulseX     = (float) CameraFeelMath.damp(slashImpulseX,     targetSlashYaw,   0.038, dt);
+        // 3E. Xung lực nhát chém Katana (Smooth Easing Attack & Decay Curves - Mạnh mẽ & Đầm tay)
+        slashImpulseRoll  = (float) CameraFeelMath.damp(slashImpulseRoll,  targetSlashRoll,  0.042, dt);
+        slashImpulsePitch = (float) CameraFeelMath.damp(slashImpulsePitch, targetSlashPitch, 0.042, dt);
+        slashImpulseX     = (float) CameraFeelMath.damp(slashImpulseX,     targetSlashYaw,   0.042, dt);
 
-        targetSlashRoll   = (float) CameraFeelMath.damp(targetSlashRoll,   0.0f, 0.09, dt);
-        targetSlashPitch  = (float) CameraFeelMath.damp(targetSlashPitch,  0.0f, 0.09, dt);
-        targetSlashYaw    = (float) CameraFeelMath.damp(targetSlashYaw,    0.0f, 0.09, dt);
+        targetSlashRoll   = (float) CameraFeelMath.damp(targetSlashRoll,   0.0f, 0.085, dt);
+        targetSlashPitch  = (float) CameraFeelMath.damp(targetSlashPitch,  0.0f, 0.085, dt);
+        targetSlashYaw    = (float) CameraFeelMath.damp(targetSlashYaw,    0.0f, 0.085, dt);
 
         // 3F. Tổng hợp góc xoay Camera POV
         cameraPitch = smoothAirPitch + slashImpulsePitch - landOffset * 22.0f;

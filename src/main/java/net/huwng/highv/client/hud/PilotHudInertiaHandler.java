@@ -127,9 +127,9 @@ public final class PilotHudInertiaHandler {
             slashDir = -slashDir; // Đổi chiều vung vũ khí mỗi nhát chém luân phiên
         }
 
-        slashImpulseX = slashDir * 2.8;     // Dạt ngang nhẹ theo hướng vung
-        slashImpulseY = 1.4;               // Nhún rất nhẹ HUD theo lực chém
-        slashImpulseRoll = slashDir * 0.7; // Độ nghiêng nhẹ nón bảo hiểm
+        slashImpulseX = slashDir * 4.2;     // Dạt ngang theo hướng vung
+        slashImpulseY = 2.2;               // Nhún HUD theo lực chém
+        slashImpulseRoll = slashDir * 1.2; // Độ nghiêng nón bảo hiểm
 
         if (hitTarget) {
             onAttackHit();
@@ -137,7 +137,7 @@ public final class PilotHudInertiaHandler {
     }
 
     public static void onAttackHit() {
-        slashImpulseY += 0.8;
+        slashImpulseY += 1.2;
     }
 
     /**
