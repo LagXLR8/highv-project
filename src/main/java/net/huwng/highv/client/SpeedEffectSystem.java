@@ -49,8 +49,15 @@ public final class SpeedEffectSystem {
             double dx = pos.x - prevPos.x;
             double dz = pos.z - prevPos.z;
             rawSpeed = Math.sqrt(dx * dx + dz * dz) * 20.0;
+        } else {
+            rawSpeed = 0.0;
         }
         prevPos = pos;
+
+        // Bổ sung vận tốc tức thời để bắt kịp ngay các cú dash, slide, grappling hook không bị trễ
+        Vec3 move = player.getDeltaMovement();
+        double instantSpeed = Math.sqrt(move.x * move.x + move.z * move.z) * 20.0;
+        rawSpeed = Math.max(rawSpeed, instantSpeed);
 
         // Exponential smoothing: tăng nhanh, giảm chậm
         double alpha = rawSpeed > smoothedSpeed ? 0.35 : 0.12;

@@ -71,12 +71,17 @@ public final class DynamicPovHandler {
     private static boolean wasOnGround = true;
     private static double prevAirVelY = 0.0;
 
-    // Slash impulse
+    // Slash impulse (Smooth Attack & Decay Curves)
     private static int prevSwingTime = 0;
     private static int slashDir = 1;
     private static float slashImpulseX = 0.0f;
     private static float slashImpulsePitch = 0.0f;
     private static float slashImpulseRoll = 0.0f;
+
+    private static float targetSlashRoll = 0.0f;
+    private static float targetSlashPitch = 0.0f;
+    private static float targetSlashYaw = 0.0f;
+    private static float targetSlashFov = 0.0f;
 
     // ─────────────────────────────────────────────────────────────────────────
     // 1. DYNAMIC FOV (ComputeFov Event)
@@ -116,8 +121,9 @@ public final class DynamicPovHandler {
         // 1C. FOV khi Drift (Trượt)
         double driftFov = DriftAnimationHandler.isActive(uuid) ? 3.0 : 0.0;
 
-        // 1D. Suy giảm Slash micro-zoom
-        slashFovImpulse = (float) CameraFeelMath.damp(slashFovImpulse, 0.0f, 0.05, dt);
+        // 1D. Suy giảm Slash micro-zoom mượt mà
+        slashFovImpulse = (float) CameraFeelMath.damp(slashFovImpulse, targetSlashFov, 0.04, dt);
+        targetSlashFov  = (float) CameraFeelMath.damp(targetSlashFov, 0.0f, 0.09, dt);
 
         targetExtraFov = speedFov + dashFovImpulse + driftFov + slashFovImpulse;
 
@@ -157,28 +163,31 @@ public final class DynamicPovHandler {
     public static void triggerSlash(int dir, String animName, boolean hitTarget) {
         String anim = animName != null ? animName.toLowerCase() : "";
         if (anim.contains("left")) {
-            // Chém từ phải sang trái -> camera nghiêng trái, liếc nhẹ theo đường kiếm
-            slashImpulseRoll = -3.2f;
-            slashImpulseX = -1.0f;
-            slashImpulsePitch = -1.4f;
+            // Chém từ phải sang trái -> camera nghiêng nhẹ sang trái theo đường kiếm
+            targetSlashRoll = -1.6f;
+            targetSlashYaw = -0.45f;
+            targetSlashPitch = -0.55f;
+            targetSlashFov = -0.7f;
         } else if (anim.contains("right")) {
-            // Chém từ trái sang phải -> camera nghiêng phải, liếc nhẹ theo đường kiếm
-            slashImpulseRoll = 3.2f;
-            slashImpulseX = 1.0f;
-            slashImpulsePitch = -1.4f;
+            // Chém từ trái sang phải -> camera nghiêng nhẹ sang phải theo đường kiếm
+            targetSlashRoll = 1.6f;
+            targetSlashYaw = 0.45f;
+            targetSlashPitch = -0.55f;
+            targetSlashFov = -0.7f;
         } else if (anim.contains("slam") || anim.contains("vertical") || anim.contains("down")) {
-            // Chém bổ dọc từ trên xuống -> camera chúc mạnh xuống tạo cảm giác đầm tay
-            slashImpulseRoll = 0.0f;
-            slashImpulseX = 0.0f;
-            slashImpulsePitch = -2.8f;
+            // Chém bổ dọc từ trên xuống -> camera chúc nhẹ xuống đầm tay
+            targetSlashRoll = 0.0f;
+            targetSlashYaw = 0.0f;
+            targetSlashPitch = -1.0f;
+            targetSlashFov = -1.0f;
         } else {
             // Nhát chém tổng quát
             int effectiveDir = dir != 0 ? dir : (slashDir = -slashDir);
-            slashImpulseRoll = effectiveDir * 2.8f;
-            slashImpulseX = effectiveDir * 0.8f;
-            slashImpulsePitch = -1.2f;
+            targetSlashRoll = effectiveDir * 1.35f;
+            targetSlashYaw = effectiveDir * 0.38f;
+            targetSlashPitch = -0.45f;
+            targetSlashFov = -0.6f;
         }
-        slashFovImpulse = -2.2f; // Micro-zoom đanh thép theo phát chém
 
         if (hitTarget) {
             onAttackHit();
@@ -186,13 +195,11 @@ public final class DynamicPovHandler {
     }
 
     /**
-     * Chấn động camera khi nhát chém trúng mục tiêu (Impact Hit-Stop & Screen Trauma).
+     * Chấn động camera khi nhát chém trúng mục tiêu (Impact Hit-Stop).
      */
     public static void onAttackHit() {
-        slashImpulsePitch -= 0.6f;
-        slashFovImpulse -= 1.0f;
-        double now = System.nanoTime() / 1_000_000_000.0;
-        ScreenShakeManager.INSTANCE.addPositionlessShake(0.06, now);
+        targetSlashPitch -= 0.35f;
+        targetSlashFov -= 0.5f;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -257,10 +264,14 @@ public final class DynamicPovHandler {
         landOffset = (float) Mth.clamp(landOffset, -0.05, 0.02);
         cameraLandOffset = landOffset;
 
-        // 3E. Xung lực nhát chém Katana (Slash Recoil Decay)
-        slashImpulseRoll = (float) CameraFeelMath.damp(slashImpulseRoll, 0.0f, 0.08, dt);
-        slashImpulsePitch = (float) CameraFeelMath.damp(slashImpulsePitch, 0.0f, 0.08, dt);
-        slashImpulseX = (float) CameraFeelMath.damp(slashImpulseX, 0.0f, 0.08, dt);
+        // 3E. Xung lực nhát chém Katana (Smooth Easing Attack & Decay Curves - KHÔNG giật cục)
+        slashImpulseRoll  = (float) CameraFeelMath.damp(slashImpulseRoll,  targetSlashRoll,  0.038, dt);
+        slashImpulsePitch = (float) CameraFeelMath.damp(slashImpulsePitch, targetSlashPitch, 0.038, dt);
+        slashImpulseX     = (float) CameraFeelMath.damp(slashImpulseX,     targetSlashYaw,   0.038, dt);
+
+        targetSlashRoll   = (float) CameraFeelMath.damp(targetSlashRoll,   0.0f, 0.09, dt);
+        targetSlashPitch  = (float) CameraFeelMath.damp(targetSlashPitch,  0.0f, 0.09, dt);
+        targetSlashYaw    = (float) CameraFeelMath.damp(targetSlashYaw,    0.0f, 0.09, dt);
 
         // 3F. Tổng hợp góc xoay Camera POV
         cameraPitch = smoothAirPitch + slashImpulsePitch - landOffset * 22.0f;

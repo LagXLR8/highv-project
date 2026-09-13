@@ -7,14 +7,17 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.LayeredDraw;
 import net.minecraft.client.renderer.GameRenderer;
+import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
 
 /**
  * Screen-space vignette overlay — pseudo motion blur.
- * 4 gradient quads từ 4 cạnh vào tâm.
- * Alpha tăng với intensity^2 → không rõ ở speed thấp.
+ * Cố định 100% trên mặt phẳng màn hình (screen-fixed), không bị nghiêng theo camera hay HUD.
  */
 public class MotionBlurOverlay implements LayeredDraw.Layer {
+
+    private static float currentVignetteAlpha = 0.0f;
+    private static long lastRenderNanos = -1;
 
     @Override
     public void render(GuiGraphics gfx, DeltaTracker delta) {
@@ -23,34 +26,41 @@ public class MotionBlurOverlay implements LayeredDraw.Layer {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.options.hideGui) return;
 
-        double speed = SpeedEffectSystem.smoothedSpeed;
-        boolean isSliding = net.huwng.highv.client.animation.DriftAnimationHandler.isSyncedSliding(mc.player.getUUID());
+        // 1. Tính delta time mượt mà
+        long now = System.nanoTime();
+        float dt = (lastRenderNanos < 0) ? 0.016f : (float) Math.min((now - lastRenderNanos) / 1_000_000_000.0, 0.1);
+        lastRenderNanos = now;
 
-        // Xuất hiện từ tốc độ 7.5 b/s trở lên hoặc khi đang trượt
-        if (speed < 7.5 && !isSliding) return;
+        // 2. Đo tốc độ thực tế (kết hợp cả smoothedSpeed và instant movement)
+        Vec3 move = mc.player.getDeltaMovement();
+        double instantHorizSpeed = Math.sqrt(move.x * move.x + move.z * move.z) * 20.0;
+        double speed = Math.max(SpeedEffectSystem.smoothedSpeed, instantHorizSpeed);
+
+        boolean isSliding = net.huwng.highv.client.animation.DriftAnimationHandler.isSyncedSliding(mc.player.getUUID());
+        boolean isSprinting = mc.player.isSprinting() && instantHorizSpeed > 3.0;
+
+        // 3. Tính toán target alpha mượt mà
+        float targetAlpha = 0.0f;
+        if (isSliding) {
+            targetAlpha = 0.42f;
+        } else if (speed >= 5.0 || isSprinting) {
+            // Khi chạy nước rút (sprint ~ 5.6 b/s) -> targetAlpha ~ 0.18
+            // Khi chạy 15 b/s -> targetAlpha ~ 0.35
+            // Khi chạy >= 30 b/s -> targetAlpha ~ 0.52
+            float factor = (float) Math.min(1.0, Math.max(0.0, (speed - 5.0) / 25.0));
+            targetAlpha = 0.16f + factor * 0.36f;
+        }
+
+        // Damping mượt mà để khi dừng lại hoặc đổi tốc độ vignette không bị biến mất đột ngột
+        currentVignetteAlpha = (float) net.huwng.highv.client.camera.CameraFeelMath.damp(currentVignetteAlpha, targetAlpha, 0.09, dt);
+
+        if (currentVignetteAlpha < 0.01f) return;
 
         int W = mc.getWindow().getGuiScaledWidth();
         int H = mc.getWindow().getGuiScaledHeight();
 
-        // Tính toán độ đậm (alpha) điện ảnh rõ nét:
-        // - 8 b/s -> 15 b/s: 0.10 -> 0.25
-        // - 20 b/s -> 35 b/s: 0.30 -> 0.52
-        // - Khi trượt: tối thiểu 0.38
-        float speedRatio = (float) Math.min(1.0, Math.max(0.0, (speed - 7.5) / 32.5));
-        float alpha = (float) (speedRatio * 0.52f);
-        if (isSliding) {
-            alpha = Math.max(alpha, 0.38f);
-        }
-        if (alpha < 0.05f) return;
-
         int vigW = (int)(W * 0.38f);
         int vigH = (int)(H * 0.38f);
-
-        PoseStack ps = gfx.pose();
-        ps.pushPose();
-
-        // Triệt tiêu dao động quán tính của Pilot HUD để vignette luôn đứng yên cố định ở 4 mép màn hình
-        net.huwng.highv.client.hud.PilotHudInertiaHandler.undoSway(ps);
 
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
@@ -59,17 +69,19 @@ public class MotionBlurOverlay implements LayeredDraw.Layer {
 
         BufferBuilder bb = Tesselator.getInstance().begin(
                 VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
-        Matrix4f mat = ps.last().pose();
 
-        gradQuad(bb, mat, 0,       0, vigW, H,    alpha, true,  false);
-        gradQuad(bb, mat, W-vigW,  0, vigW, H,    alpha, true,  true);
-        gradQuad(bb, mat, 0,       0, W,    vigH, alpha, false, false);
-        gradQuad(bb, mat, 0,    H-vigH, W,  vigH, alpha, false, true);
+        // MA TRẬN IDENTITY MỚI 100%:
+        // Hoàn toàn độc lập với PoseStack, không bị nghiêng bởi Dynamic POV hay xoay theo HUD helmet sway!
+        Matrix4f screenMat = new Matrix4f();
+
+        gradQuad(bb, screenMat, 0,       0, vigW, H,    currentVignetteAlpha, true,  false);
+        gradQuad(bb, screenMat, W-vigW,  0, vigW, H,    currentVignetteAlpha, true,  true);
+        gradQuad(bb, screenMat, 0,       0, W,    vigH, currentVignetteAlpha, false, false);
+        gradQuad(bb, screenMat, 0,    H-vigH, W,  vigH, currentVignetteAlpha, false, true);
 
         BufferUploader.drawWithShader(bb.buildOrThrow());
         RenderSystem.enableDepthTest();
         RenderSystem.disableBlend();
-        ps.popPose();
     }
 
     private static void gradQuad(BufferBuilder bb, Matrix4f m,
